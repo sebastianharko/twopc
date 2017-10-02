@@ -1,0 +1,46 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: twopc
+spec:
+  replicas: 3 
+  template:
+    metadata:
+      labels:
+        app: twopc
+    spec:
+      containers:
+      - name: twopc
+        image: sebastianharko/2pc:1.1
+        imagePullPolicy: Always
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP 
+        ports:
+        - containerPort: 8080
+        - containerPort: 19999
+        - containerPort: 2551
+        resources:
+          requests:
+            cpu: 0.5
+            memory: 512Mi
+          limits:
+            cpu: 1.5
+            memory: 1Gi
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: twopc
+spec:
+  selector:
+    app: twopc
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+  type: LoadBalancer
+  loadBalancerSourceRanges:
+    - 0.0.0.0/0
