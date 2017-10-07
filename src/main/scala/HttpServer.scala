@@ -1,8 +1,6 @@
 package app
 
-import java.util.UUID.randomUUID
-
-import akka.actor.{ActorRef, ActorSystem, Props}
+import akka.actor.ActorSystem
 import akka.cluster.Cluster
 import akka.cluster.http.management.ClusterHttpManagement
 import akka.http.scaladsl.Http
@@ -31,52 +29,21 @@ object Main extends App {
   implicit val serialization = jackson.Serialization
   implicit val formats = DefaultFormats
 
-  implicit val timeout = akka.util.Timeout(3 seconds)
+  implicit val timeout = akka.util.Timeout(4 seconds)
 
-  val route =
-    path("withdraw" / Segment / IntNumber) {
-      case (accountId, amount) => {
-        post {
-          complete {
-            (accounts ? Withdraw(accountId, amount)).map {
-              case Accepted => Map("result" -> "success")
-              case Rejected => Map("result" -> "failure")
-            }
-          }
+  val route = path("query" / Segment) {
+    accountId => {
+      get {
+        complete {
+          (accounts ? Query(accountId)).mapTo[Int].map { case r => Map("amount" -> r) }
         }
       }
-    } ~
-      path("deposit" / Segment / IntNumber) {
-        case (accountId, amount) => {
-          post {
-            complete {
-              (accounts ? Deposit(accountId, amount)).map {
-                case Accepted => Map("result" -> "success")
-                case Rejected => Map("result" -> "failure")
-              }
-            }
-          }
-        }
-      } ~ path("query" / Segment) {
-      case accountId => {
-        get {
-          complete {
-            (accounts ? Query(accountId)).mapTo[Int].map {
-              case r => Map("amount" -> r)
-            }
-          }
-        }
-      }
-    } ~ path("transaction" / Segment / Segment / IntNumber) {
-      case (sourceId, destId, amount) => {
+    }
+  } ~ path("transaction" / Segment / Segment / IntNumber) {
+      case (sourceAccountId, destinationAccountId, amount) => {
         post {
           complete {
-            val id = randomUUID().toString
-            val t: ActorRef = ???
-            (t ? ???).map {
-              case Accepted => Map("result" -> "success")
-              case Rejected => Map("result" -> "failure")
-            }
+            Map("result" -> "success")
           }
         }
       }
