@@ -39,11 +39,14 @@ object Main extends App {
         }
       }
     }
-  } ~ path("transaction" / Segment / Segment / IntNumber) {
-      case (sourceAccountId, destinationAccountId, amount) => {
+  } ~ path("change" /  Segment / IntNumber) {
+      case (accountId, delta) => {
         post {
           complete {
-            Map("result" -> "success")
+            (accounts ? ChangeBalance(accountId, delta)).map {
+              case Accepted(_) => Map("completed" -> true)
+              case Rejected(_) => Map("rejected" -> true)
+            }
           }
         }
       }

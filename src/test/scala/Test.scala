@@ -70,11 +70,10 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
 
       val account = system.actorOf(Props(new AccountActor()), "42")
       account ! ChangeBalance("42", 50)
+      expectMsg(Accepted())
       account ! ChangeBalance("42", 20)
+      expectMsg(Accepted())
       account ! ChangeBalance("42", -10)
-
-      expectMsg(Accepted())
-      expectMsg(Accepted())
       expectMsg(Accepted())
 
       account ! Query("42")
@@ -88,11 +87,10 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
 
       val accountA = system.actorOf(Props(new AccountActor()), "56")
       accountA ! ChangeBalance("56", 50)
+      expectMsg(Accepted())
       accountA ! ChangeBalance("56", 20)
+      expectMsg(Accepted())
       accountA ! ChangeBalance("56", -10)
-
-      expectMsg(Accepted())
-      expectMsg(Accepted())
       expectMsg(Accepted())
 
       system.stop(accountA)

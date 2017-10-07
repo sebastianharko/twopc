@@ -80,6 +80,16 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
     }
   }
 
+  def validateMoneyTransaction(moneyTransaction: MoneyTransaction) = {
+
+    if (moneyTransaction.sourceAccountId == accountId)
+      validate(ChangeBalance(accountId, -moneyTransaction.amount))
+    else
+      validate(ChangeBalance(accountId, moneyTransaction.amount))
+
+  }
+
+
   def onEvent(e: Any) = {
     e match {
       case BalanceChanged(delta) =>
@@ -87,6 +97,36 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
         balance = balance + delta
     }
   }
+
+  def changingBalance: Receive = {
+
+    case Query(accId) if accId == accountId =>
+      sender() ! balance
+
+    case IsLocked(accId) if accId == accountId =>
+      sender() ! true
+
+    case c @ ChangeBalance(accId, m) if accId == accountId && !validate(c) =>
+      sender() ! Rejected()
+
+    case c @ ChangeBalance(accId, m) if accId == accountId && validate(c) =>
+      stash()
+
+    case Vote(accId, moneyTransaction: MoneyTransaction) if accId == accountId && !validateMoneyTransaction(moneyTransaction) =>
+      sender() ! No(accountId)
+
+    case Vote(accId, moneyTransaction: MoneyTransaction) if accId == accountId =>
+      stash()
+
+    case r: Rollback if r.accountId == accountId =>
+      sender() ! AckRollback(r.accountId, r.transaction.transactionId, r.deliveryId)
+
+    case f: Finalize if f.accountId == accountId =>
+      sender() ! AckFinalize(accountId, f.transaction.transactionId, f.deliveryId)
+
+  }
+
+  var replyTo: ActorRef = null // for ChangeBalance
 
   override def receiveCommand = {
 
@@ -96,35 +136,30 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
     case IsLocked(accId) if accId == accountId =>
         sender() ! false
 
-    case c @ ChangeBalance(accId, m) if accId == accountId =>
-      if (validate(c)) {
-        persist(BalanceChanged(m)) {
+    case c @ ChangeBalance(accId, m) if accId == accountId && validate(c) =>
+        replyTo = sender()
+        context.become(changingBalance, discardOld = true)
+        persistAsync(BalanceChanged(m)) {
           e => {
             onEvent(e)
-            sender() ! Accepted()
+            replyTo ! Accepted()
+            unstashAll()
+            context.become(receiveCommand, discardOld = true)
           }
         }
-      } else {
-        sender() ! Rejected
-      }
 
-    case Vote(accId, moneyTransaction: MoneyTransaction) if accId == accountId =>
+    case c @ ChangeBalance(accId, m) if accId == accountId && !validate(c) =>
+      sender() ! Rejected()
 
-      val valid = if (moneyTransaction.sourceAccountId == accountId)
-          validate(ChangeBalance(accountId, -moneyTransaction.amount))
-        else
-          validate(ChangeBalance(accountId, moneyTransaction.amount))
-
-      coordinator = sender()
-
-      if (!valid) {
-        coordinator ! No(accountId)
-        coordinator = null
-      } else {
+    case Vote(accId, moneyTransaction: MoneyTransaction) if accId == accountId && validateMoneyTransaction(moneyTransaction)=> {
+        coordinator = sender()
         coordinator ! Yes(accountId)
         timers.startSingleTimer(0, TimedOut(moneyTransaction.transactionId), AccountActor.CommitOrAbortTimeout)
         context.become(waitingForCommitOrAbortOrTimeout(moneyTransaction))
-      }
+    }
+
+    case Vote(accId, moneyTransaction: MoneyTransaction) if accId == accountId && !validateMoneyTransaction(moneyTransaction) =>
+      sender() ! No(accountId)
 
     case ReceiveTimeout => context.parent ! Passivate(stopMessage = Stop)
 
@@ -153,12 +188,12 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
       timers.cancelAll()
       coordinator = null
       unstashAll()
-      context.become(receive, discardOld = true)
+      context.become(receiveCommand, discardOld = true)
 
     case TimedOut(transId) if transId == transaction.transactionId =>
       coordinator = null
       unstashAll()
-      context.become(receive, discardOld = true)
+      context.become(receiveCommand, discardOld = true)
 
     // Commit is delivered at most once
     case Commit(accId, tId: String) if accId == accountId && tId == transaction.transactionId =>
@@ -204,7 +239,7 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
            coordinator ! AckFinalize(accountId, transaction.transactionId, deliveryId)
            coordinator = null
            unstashAll()
-           context.become(receive, discardOld = true) // going back to normal
+           context.become(receiveCommand, discardOld = true) // going back to normal
         }
       }
 
@@ -226,7 +261,7 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
           coordinator ! AckRollback(accountId, t.transactionId, r.deliveryId)
           coordinator = null
           unstashAll()
-          context.become(receive, discardOld = true) // going back to normal
+          context.become(receiveCommand, discardOld = true) // going back to normal
         }
       }
 
