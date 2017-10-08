@@ -4,7 +4,31 @@ import akka.actor.{ActorLogging, ActorRef, Timers}
 import akka.persistence.{AtLeastOnceDelivery, PersistentActor, RecoveryCompleted}
 import akka.testkit.TestActors
 
+import scala.collection.mutable
 import scala.concurrent.duration._
+
+/*
+
+    +----------------------+                        +------------------------+    timed out waiting for responses
+    |                      |     all votes 'Yes'    | Send a Commit  message ------\
+    |   Ask participants   |             ------------ to every  participant  |      -------------\
+    |   to vote            |------------/           | (at most once delivery)|                    ------+------------------+
+    |                      |                        +-----|------------|-----+                          |  Send  Rollback  |
+    +----------------------+                              |            |                                |  message  (at    |
+                                                          |            |                                |  least once      |
+    +----------------------+     acknowledge              |            |all participants                |  delivery)       |
+    |   Write  transaction |------------------------------+            |acknowledge the Commit          +------------------+
+    |   to coordinator's   |                                           |message
+    |   event log          |                                           |
+    +----------------------+                                     +-----|------------------+
+                                                                 |  Send Finalize message |
+                                                                 |  (at least once        |
+                                                                 |    delivery)           |
+                                                                 |                        |
+                                                                 +------------------------+
+
+*/
+
 
 case class MoneyTransaction(transactionId: String,
     sourceAccountId: String,
@@ -85,12 +109,18 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
   var replyTo: ActorRef = context.actorOf(TestActors.blackholeProps)
 
   override def receiveCommand = {
+
     case transaction: MoneyTransaction =>
+
+      assert(transaction.transactionId == self.path.name)
+
       persistAsync(transaction)(_ => phase = 'Initiated)
       onEvent(transaction)
       this.replyTo = sender()
       self ! StartVotingProcess
+
     case StartVotingProcess =>
+
       shardedAccounts ! Vote(moneyTransaction.sourceAccountId, moneyTransaction)
       shardedAccounts ! Vote(moneyTransaction.destinationAccountId, moneyTransaction)
       timers.startSingleTimer('WaitingForVotes, TimedOut(moneyTransaction.transactionId), VotingPhaseTimesOutAfter)
@@ -98,11 +128,14 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
       log.info("started voting process")
     }
 
-  var yesVotes: Set[AccountId] = Set()
+  val yesVotes: mutable.Set[AccountId] = mutable.Set[AccountId]()
 
   def waitingForVoteResults: Receive = {
 
-    case TimedOut(_) =>
+    case TimedOut(transactionId) =>
+
+      assert(transactionId == moneyTransaction.transactionId)
+
       replyTo ! Rejected(Some(moneyTransaction.transactionId))
       shardedAccounts ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
@@ -110,7 +143,10 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
       log.info("timed out (voting process)")
       context.stop(self)
 
-    case No(_) =>
+    case No(someAccountId) =>
+
+      assert(someAccountId == moneyTransaction.sourceAccountId || someAccountId == moneyTransaction.destinationAccountId)
+
       replyTo ! Rejected(Some(moneyTransaction.transactionId))
       shardedAccounts ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
@@ -119,17 +155,22 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
       context.stop(self)
 
     case Yes(accId) =>
+
+      assert(accId == moneyTransaction.sourceAccountId || accId == moneyTransaction.destinationAccountId)
+
       log.info("received yes vote")
-      yesVotes = yesVotes + accId
+      yesVotes +=  accId
       self ! Check
 
     case Check if yesVotes.size == 2 && phase == 'Initiated => {
+
         shardedAccounts ! Commit(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
         shardedAccounts ! Commit(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
         timers.cancelAll()
         timers.startSingleTimer('WaitingForCommitAcks, TimedOut(moneyTransaction.transactionId), WaitingForCommitPhaseTimesOutAfter)
         log.info("received two yes votes and response from journal, moving forward")
         context.become(waitingForCommitAcks, discardOld = true)
+
       }
 
     case Check if yesVotes.size == 2 =>
@@ -138,15 +179,21 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
 
   }
 
-  var commitAcksReceived: Set[AccountId] = Set()
+  val commitAcksReceived: mutable.Set[AccountId] = mutable.Set[AccountId]()
+
   def waitingForCommitAcks: Receive = {
 
-    case AckCommit(accountId, _) =>
+    case AckCommit(accountId, transactionId) =>
+
+      assert(transactionId == moneyTransaction.transactionId)
+      assert(accountId == moneyTransaction.sourceAccountId || accountId == moneyTransaction.destinationAccountId)
+
       log.info("received ack for my commit message")
-      commitAcksReceived = commitAcksReceived + accountId
+      commitAcksReceived += accountId
       self ! Check
 
     case Check =>
+
       if (commitAcksReceived.size == 2) {
         log.info("received two acks for my commit messages, moving forward")
         timers.cancelAll()
@@ -154,26 +201,39 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
         context.become(finalizing, discardOld = true)
       }
 
-    case TimedOut(_) =>
+    case TimedOut(transactionId) =>
+
+      assert(transactionId == moneyTransaction.transactionId)
+
       log.info("timed out while waiting for acks for my commit messages, now rolling back")
       self ! StartRollback
       context.become(rollingBack, discardOld = true)
   }
 
-  var ackFinalized: Set[AccountId] = Set()
+  val ackFinalized: mutable.Set[AccountId] = mutable.Set()
+
   def finalizing: Receive = {
+
     case StartFinalize =>
+
       log.info("sending finalize messages with at least once delivery")
-      deliver(shardedAccounts.path)((id: Long) => Finalize(moneyTransaction.sourceAccountId, moneyTransaction, id))
-      deliver(shardedAccounts.path)((id: Long) => Finalize(moneyTransaction.destinationAccountId, moneyTransaction, id))
-      persistAsync(Finalizing(moneyTransaction.transactionId, moneyTransaction.sourceAccountId, moneyTransaction.destinationAccountId))(_ => ())
-    case ackFinalize @ AckFinalize(_, _, _) =>
+      persistAsync(Finalizing(moneyTransaction.transactionId, moneyTransaction.sourceAccountId, moneyTransaction.destinationAccountId)){
+        e => onEvent(e)
+      }
+
+    case ackFinalize @ AckFinalize(accountId, transactionId, _) =>
+
+      assert(accountId == moneyTransaction.sourceAccountId || accountId == moneyTransaction.destinationAccountId)
+      assert(transactionId == moneyTransaction.transactionId)
+
       log.info("received ack for finalize message")
       persistAsync(ackFinalize) { e =>
         onEvent(e)
         self ! Check
       }
+
     case Check =>
+
       if (ackFinalized.size == 2) {
         log.info("received two acks for finalize messages")
         replyTo ! Accepted(Some(moneyTransaction.transactionId))
@@ -183,12 +243,19 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
 
   var ackRollBacked: Set[AccountId] = Set()
   def rollingBack: Receive = {
+
     case StartRollback =>
-      log.info("sending rollback messages")
+
+      log.info("sending rollback messages with at least once delivery")
       deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.sourceAccountId, moneyTransaction, id))
       deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.destinationAccountId, moneyTransaction, id))
       persistAsync(Rollingback(moneyTransaction.transactionId, moneyTransaction.sourceAccountId, moneyTransaction.destinationAccountId))(_ => ())
-    case ackRollback @ AckRollback(_, _, _) =>
+
+    case ackRollback @ AckRollback(accountId, transactionId, _) =>
+
+      assert(accountId == moneyTransaction.sourceAccountId || accountId == moneyTransaction.destinationAccountId)
+      assert(transactionId == moneyTransaction.transactionId)
+
       log.info("received ack for rollback message")
       persistAsync(ackRollback) { e =>
         onEvent(e)
@@ -214,11 +281,11 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
 
     case AckFinalize(accountId, _, deliveryId) =>
       confirmDelivery(deliveryId)
-      ackFinalized = ackFinalized + accountId
+      ackFinalized += accountId
 
     case AckRollback(accountId, _, deliveryId) =>
       confirmDelivery(deliveryId)
-      ackRollBacked = ackRollBacked + accountId
+      ackRollBacked += accountId
 
     case Rollingback(_, _, _) =>
       phase = 'Rollingback
@@ -228,11 +295,13 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
   }
 
   override def receiveRecover: Receive = {
+
     case e: MoneyTransaction => onEvent(e)
     case e: Finalizing => onEvent(e)
     case e: AckFinalize => onEvent(e)
     case e: AckRollback => onEvent(e)
     case e: Rollingback => onEvent(e)
+
     case RecoveryCompleted =>
 
       if (phase == 'Finalizing) {

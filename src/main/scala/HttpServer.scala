@@ -39,18 +39,27 @@ object Main extends App {
         }
       }
     }
-  } ~ path("change" /  Segment / IntNumber) {
-      case (accountId, delta) => {
+  } ~ path("deposit" /  Segment / IntNumber) {
+      case (accountId, amount) => {
         post {
           complete {
-            (accounts ? ChangeBalance(accountId, delta)).map {
+            (accounts ? ChangeBalance(accountId, amount)).map {
               case Accepted(_) => Map("completed" -> true)
               case Rejected(_) => Map("rejected" -> true)
-            }
+            } }
           }
         }
-      }
-    }
+    } ~ path("withdraw" / Segment / IntNumber) {
+     case (accountId, amount) => {
+        post {
+          complete {
+            (accounts ? ChangeBalance(accountId, - amount)).map {
+              case Accepted(_) => Map("completed" -> true)
+              case Rejected(_) => Map("rejected" -> true)
+            } }
+          }
+        }
+  }
 
   val bindingFuture = Http().bindAndHandle(route, scala.sys.env.getOrElse("POD_IP", "0.0.0.0"), 8080)
 
