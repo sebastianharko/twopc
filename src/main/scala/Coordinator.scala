@@ -6,6 +6,7 @@ import akka.testkit.TestActors
 
 import scala.collection.mutable
 import scala.concurrent.duration._
+import scala.language.postfixOps
 
 /*
 
@@ -93,9 +94,9 @@ object Coordinator {
 
   type AccountId = String
 
-  val VotingPhaseTimesOutAfter = 1 seconds
+  val VotingPhaseTimesOutAfter: FiniteDuration = 1 seconds
 
-  val WaitingForCommitPhaseTimesOutAfter = 1 second
+  val WaitingForCommitPhaseTimesOutAfter: FiniteDuration = 1 second
 
 }
 
@@ -103,12 +104,12 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
 
   import Coordinator._
 
-  var phase: Any = null
+  var phase: Any = _
 
-  var moneyTransaction: MoneyTransaction = null
+  var moneyTransaction: MoneyTransaction = _
   var replyTo: ActorRef = context.actorOf(TestActors.blackholeProps)
 
-  override def receiveCommand = {
+  override def receiveCommand: Receive = {
 
     case transaction: MoneyTransaction =>
 
@@ -162,16 +163,14 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
       yesVotes +=  accId
       self ! Check
 
-    case Check if yesVotes.size == 2 && phase == 'Initiated => {
+    case Check if yesVotes.size == 2 && phase == 'Initiated =>
 
-        shardedAccounts ! Commit(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
-        shardedAccounts ! Commit(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
-        timers.cancelAll()
-        timers.startSingleTimer('WaitingForCommitAcks, TimedOut(moneyTransaction.transactionId), WaitingForCommitPhaseTimesOutAfter)
-        log.info("received two yes votes and response from journal, moving forward")
-        context.become(waitingForCommitAcks, discardOld = true)
-
-      }
+      shardedAccounts ! Commit(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
+      shardedAccounts ! Commit(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
+      timers.cancelAll()
+      timers.startSingleTimer('WaitingForCommitAcks, TimedOut(moneyTransaction.transactionId), WaitingForCommitPhaseTimesOutAfter)
+      log.info("received two yes votes and response from journal, moving forward")
+      context.become(waitingForCommitAcks, discardOld = true)
 
     case Check if yesVotes.size == 2 =>
       log.info("received two yes votes but no response from journal yet, let's check again later")
@@ -269,7 +268,7 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
       }
   }
 
-  def onEvent(e: Any) = e match {
+  def onEvent(e: Any): Unit = e match {
 
     case transaction: MoneyTransaction =>
       this.moneyTransaction = transaction

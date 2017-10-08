@@ -11,7 +11,6 @@ class EventSerialization(actorSystem: ExtendedActorSystem) extends Serializer {
 
   import org.json4s.jackson.Serialization.{read, write}
   val UTF8: Charset = Charset.forName("UTF-8")
-  private val log = Logging.getLogger(actorSystem, this)
 
   implicit val formats = DefaultFormats
 
@@ -33,7 +32,6 @@ class EventSerialization(actorSystem: ExtendedActorSystem) extends Serializer {
   }
 
   override def toBinary(o: AnyRef): Array[Byte] = {
-    val jsonString = write(o)
     val dat = write(o).getBytes(UTF8)
     dat
   }

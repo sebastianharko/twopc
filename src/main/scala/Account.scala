@@ -5,13 +5,45 @@ import akka.cluster.sharding.ShardRegion.{ExtractEntityId, ExtractShardId}
 import akka.cluster.sharding.{ClusterSharding, ClusterShardingSettings}
 import akka.persistence.{PersistentActor, RecoveryCompleted}
 
+/*
+
+
+                                                                                    +----------------------------+
+                                    +--------------+                                | mark the                   |
+   +-------------+  Votes yes       |              |                                - transaction                |
+   |             |  on transaction  |  Read Only   |                               /| as finalized in the journal|
+   |   Account   --------------------   Account    |                              / +----------------------------+
+   |             |                  |              |        +---------------+    /
+   +------|------+                  |              |        |               |   /
+          |                         +-------|------+        |  Waiting for  |  /
+          |                                 |               |  Rollback     | /
+          |                                 |               |  or           |/
+          |                                 |               |  Finalize     |\
+          |                                 |               |               | \
+          |                                 |               +-------|-------+  \
+          | on timeout              +-------|------+                |           \  +----------------------------+
+          | or abort                |              |                |            \ |                            |
+          |                         |  Waiting for |                |             \| write to the journal       |
+          |                         |  Commit      |                |              - a counter event            |
+          +--------------------------  or          |                |              +----------------------------+
+                                    |  Abort       |     ack the    |
+                                    |              |     commit     |
+                                    +-------------------------------+
+                                                     write  to the journal
+                                                     (transaction, event)
+
+
+
+ */
+
+
 import scala.concurrent.duration._
 
 case class ChangeBalance(accountId: String, byAmount: Int)
 
 case class BalanceChanged(amount: Int)
 
-case class Query(accountId: String)
+case class GetBalance(accountId: String)
 
 case class IsLocked(accountId: String)
 
@@ -21,7 +53,7 @@ object Sharding {
 
   val extractEntityId: ExtractEntityId = {
     case c @ ChangeBalance(accountId, _) => (accountId, c)
-    case c @ Query(accountId) => (accountId, c)
+    case c @ GetBalance(accountId) => (accountId, c)
     case c @ IsLocked(accountId) => (accountId, c)
     case c @ Vote(accountId, _) => (accountId, c)
     case c @ Commit(accountId, _) => (accountId, c)
@@ -31,14 +63,14 @@ object Sharding {
   }
 
   val extractShardId: ExtractShardId = {
-    case c @ ChangeBalance(accountId, _) => (accountId.hashCode % NumShards).toString
-    case c @ Query(accountId) => (accountId.hashCode % NumShards).toString
-    case c @ IsLocked(accountId) => (accountId.hashCode % NumShards).toString
-    case c @ Vote(accountId, _) => (accountId.hashCode % NumShards).toString
-    case c @ Commit(accountId, _) => (accountId.hashCode % NumShards).toString
-    case c @ Abort(accountId, _) => (accountId.hashCode % NumShards).toString
-    case c @ Rollback(accountId, _, _) => (accountId.hashCode % NumShards).toString
-    case c @ Finalize(accountId, _, _) => (accountId.hashCode % NumShards).toString
+    case ChangeBalance(accountId, _) => (accountId.hashCode % NumShards).toString
+    case GetBalance(accountId) => (accountId.hashCode % NumShards).toString
+    case IsLocked(accountId) => (accountId.hashCode % NumShards).toString
+    case Vote(accountId, _) => (accountId.hashCode % NumShards).toString
+    case Commit(accountId, _) => (accountId.hashCode % NumShards).toString
+    case Abort(accountId, _) => (accountId.hashCode % NumShards).toString
+    case Rollback(accountId, _, _) => (accountId.hashCode % NumShards).toString
+    case Finalize(accountId, _, _) => (accountId.hashCode % NumShards).toString
   }
 
   def accounts(system: ActorSystem): ActorRef = ClusterSharding(system).start(
@@ -52,7 +84,7 @@ object Sharding {
 
 object AccountActor {
 
-  val CommitOrAbortTimeout = 400.milliseconds
+  val CommitOrAbortTimeout: FiniteDuration = 400.milliseconds
 
 }
 
@@ -66,22 +98,22 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
 
   override def persistenceId: String = self.path.name
 
-  val accountId = self.path.name
+  val accountId: String = self.path.name
 
   var previousBalance = 0
 
   var balance = 0
 
-  var coordinator: ActorRef = null
+  var activeBalance = balance
+
 
   def validate(e: Any): Boolean = {
     e match {
-      case ChangeBalance(_, byAmount) => balance + byAmount >= 0
+      case ChangeBalance(_, byAmount) => activeBalance + byAmount >= 0
     }
   }
 
-  def validateMoneyTransaction(moneyTransaction: MoneyTransaction) = {
-
+  def validateMoneyTransaction(moneyTransaction: MoneyTransaction): Boolean = {
     if (moneyTransaction.sourceAccountId == accountId)
       validate(ChangeBalance(accountId, -moneyTransaction.amount))
     else
@@ -90,7 +122,7 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
   }
 
 
-  def onEvent(e: Any) = {
+  def onEvent(e: Any): Unit = {
     e match {
       case BalanceChanged(delta) =>
         previousBalance = balance
@@ -98,193 +130,200 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
     }
   }
 
-  def changingBalance: Receive = {
+  def canGetCurrentBalance: Receive = {
+    case GetBalance(accId) =>
+      assert(accId == accountId)
+      sender() ! activeBalance
+  }
 
-    case Query(accId) if accId == accountId =>
-      sender() ! balance
+  def canRespondToPreviousTransactionsCoordinators(currentTransactionId: String): Receive = {
+    case r: Rollback if  r.transaction.transactionId != currentTransactionId =>
+      assert(r.accountId == accountId)
+      sender() ! AckRollback(r.accountId, r.transaction.transactionId, r.deliveryId)
 
-    case IsLocked(accId) if accId == accountId =>
+    case f: Finalize if f.transaction.transactionId != currentTransactionId =>
+      assert(f.accountId == accountId)
+      sender() ! AckFinalize(accountId, f.transaction.transactionId, f.deliveryId)
+  }
+
+  def showsLocked: Receive = {
+    case IsLocked(accId) =>
+      assert(accId == accountId)
       sender() ! true
-
-    case c @ ChangeBalance(accId, m) if accId == accountId && !validate(c) =>
-      sender() ! Rejected()
-
-    case c @ ChangeBalance(accId, m) if accId == accountId && validate(c) =>
-      stash()
-
-    case Vote(accId, moneyTransaction: MoneyTransaction) if accId == accountId && !validateMoneyTransaction(moneyTransaction) =>
-      sender() ! No(accountId)
-
-    case Vote(accId, moneyTransaction: MoneyTransaction) if accId == accountId =>
-      stash()
-
-    case r: Rollback if r.accountId == accountId =>
-      sender() ! AckRollback(r.accountId, r.transaction.transactionId, r.deliveryId)
-
-    case f: Finalize if f.accountId == accountId =>
-      sender() ! AckFinalize(accountId, f.transaction.transactionId, f.deliveryId)
-
   }
 
-  var replyTo: ActorRef = null // for ChangeBalance
+  def showsNotLocked: Receive = {
+    case IsLocked(accId) =>
+      assert(accId == accountId)
+      sender() ! false
+  }
 
-  override def receiveCommand = {
-
-    case Query(accId) if accId == accountId =>
-        sender() ! balance
-
-    case IsLocked(accId) if accId == accountId =>
-        sender() ! false
-
-    case c @ ChangeBalance(accId, m) if accId == accountId && validate(c) =>
-        replyTo = sender()
-        context.become(changingBalance, discardOld = true)
-        persistAsync(BalanceChanged(m)) {
-          e => {
-            onEvent(e)
-            replyTo ! Accepted()
-            unstashAll()
-            context.become(receiveCommand, discardOld = true)
-          }
-        }
-
-    case c @ ChangeBalance(accId, m) if accId == accountId && !validate(c) =>
+  def canRejectInvalidChangeBalance: Receive = {
+    case c @ ChangeBalance(accId, _) if !validate(c) =>
+      assert(accId == accountId)
       sender() ! Rejected()
+  }
 
-    case Vote(accId, moneyTransaction: MoneyTransaction) if accId == accountId && validateMoneyTransaction(moneyTransaction)=> {
-        coordinator = sender()
-        coordinator ! Yes(accountId)
-        timers.startSingleTimer(0, TimedOut(moneyTransaction.transactionId), AccountActor.CommitOrAbortTimeout)
-        context.become(waitingForCommitOrAbortOrTimeout(moneyTransaction))
-    }
-
-    case Vote(accId, moneyTransaction: MoneyTransaction) if accId == accountId && !validateMoneyTransaction(moneyTransaction) =>
+  def canVoteNoOnMoneyTransaction: Receive = {
+    case Vote(accId, moneyTransaction: MoneyTransaction) if !validateMoneyTransaction(moneyTransaction) =>
+      assert(accId == accountId)
       sender() ! No(accountId)
+  }
 
+  def canStashChangeBalanceCommand: Receive = {
+
+    case c@ChangeBalance(accId, _) if validate(c) =>
+      assert(accId == accountId)
+      stash()
+  }
+
+  def canStashVoteRequest: Receive = {
+    case Vote(accId, moneyTransaction) if validateMoneyTransaction(moneyTransaction) =>
+      assert(accId == accountId)
+      stash()
+  }
+
+  def passivationSupport: Receive = {
     case ReceiveTimeout => context.parent ! Passivate(stopMessage = Stop)
-
     case Stop => context.stop(self)
-
-    case r: Rollback if r.accountId == accountId =>
-      sender() ! AckRollback(r.accountId, r.transaction.transactionId, r.deliveryId)
-
-    case f: Finalize if f.accountId == accountId =>
-      sender() ! AckFinalize(accountId, f.transaction.transactionId, f.deliveryId)
-
   }
 
-
-  def waitingForCommitOrAbortOrTimeout(transaction: MoneyTransaction): Receive = {
-
-    case Query(accId) if accId == accountId => sender() ! balance
-
-    case IsLocked(accId) if accId == accountId => sender() ! true
-
-    case c: ChangeBalance if c.accountId == accountId =>
-      stash()
-
-    case Abort(accId, transId) if accId == accountId && transId == transaction.transactionId =>
-      // don't worry about sending an Ack here, since the coordinator can assume it's gonna time out anyway
-      timers.cancelAll()
-      coordinator = null
-      unstashAll()
-      context.become(receiveCommand, discardOld = true)
-
-    case TimedOut(transId) if transId == transaction.transactionId =>
-      coordinator = null
-      unstashAll()
-      context.become(receiveCommand, discardOld = true)
-
-    // Commit is delivered at most once
-    case Commit(accId, tId: String) if accId == accountId && tId == transaction.transactionId =>
-      timers.cancelAll()
-      val event = if (transaction.sourceAccountId == accountId) BalanceChanged(-transaction.amount) else BalanceChanged(transaction.amount)
-      persistAllAsync(List(transaction, event)) {
-        case t: MoneyTransaction => // do nothing
-        case e: BalanceChanged => {
-          context.become(waitingForFinalizeOrRollback(transaction), discardOld = true)
+  var replyTo: ActorRef = _ // for ChangeBalance
+  def canChangeBalance: Receive = {
+    case c @ ChangeBalance(accId, m) if validate(c) =>
+      assert(accId == accountId)
+      replyTo = sender()
+      context.become(whileChangingBalance, discardOld = true)
+      persistAsync(BalanceChanged(m)) {
+        e => {
           onEvent(e)
-          coordinator ! AckCommit(accountId, tId)
-        }
-      }
-
-    case r: Rollback if r.accountId == accountId && r.transaction.transactionId != transaction.transactionId =>
-      sender() ! AckRollback(r.accountId, r.transaction.transactionId, r.deliveryId)
-
-    case f: Finalize if f.accountId == accountId && f.transaction.transactionId != transaction.transactionId =>
-      sender() ! AckFinalize(f.accountId, f.transaction.transactionId, f.deliveryId)
-
-  }
-
-  var persistInProgress = false
-  def waitingForFinalizeOrRollback(transaction: MoneyTransaction): Receive = {
-
-    case Query(accId) if accId == accountId => sender() ! previousBalance // not finalized so previous balance is still in effect
-
-    case IsLocked(accId) if accId == accountId => sender() ! true
-
-    case m: ChangeBalance if m.accountId == accountId =>
-      stash()
-
-    case finalize @ Finalize(accId, t, deliveryId) if !persistInProgress && t.transactionId == transaction.transactionId && accId == accountId =>
-
-      if (coordinator == null)
-        coordinator = sender()
-
-      persistInProgress = true
-
-      persistAsync(finalize) {
-         _ => {
-           persistInProgress = false
-           coordinator ! AckFinalize(accountId, transaction.transactionId, deliveryId)
-           coordinator = null
-           unstashAll()
-           context.become(receiveCommand, discardOld = true) // going back to normal
-        }
-      }
-
-    case rollback @ Rollback(_, t, _) if t.transactionId == transaction.transactionId =>
-
-      if (coordinator == null)
-        coordinator = sender()
-
-      val counterEvent = if (transaction.sourceAccountId == accountId) BalanceChanged(transaction.amount) else BalanceChanged(-transaction.amount)
-
-      persistInProgress = true
-
-      persistAllAsync(List(counterEvent, rollback)) {
-        case e: BalanceChanged => {
-          onEvent(e)
-        }
-        case r: Rollback => {
-          persistInProgress = false
-          coordinator ! AckRollback(accountId, t.transactionId, r.deliveryId)
-          coordinator = null
+          replyTo ! Accepted()
           unstashAll()
-          context.become(receiveCommand, discardOld = true) // going back to normal
+          context.become(receiveCommand, discardOld = true)
         }
       }
-
-
-    case r: Rollback if r.transaction.transactionId != transaction.transactionId && r.accountId == accountId =>
-      sender() ! AckRollback(r.accountId, r.transaction.transactionId, r.deliveryId)
-
-    case f: Finalize if f.transaction.transactionId != transaction.transactionId && f.accountId == accountId =>
-      sender() ! AckFinalize(f.accountId, f.transaction.transactionId, f.deliveryId)
-
   }
 
-  var uncompletedTransaction: MoneyTransaction = null
+  var coordinator: ActorRef = _
+  def canVoteYesOnMoneyTransaction: Receive = {
+    case Vote(accId, moneyTransaction: MoneyTransaction) if validateMoneyTransaction(moneyTransaction) =>
+      assert(accId == accountId)
+      coordinator = sender()
+      coordinator ! Yes(accountId)
+      timers.startSingleTimer(0, TimedOut(moneyTransaction.transactionId), AccountActor.CommitOrAbortTimeout)
+      context.become(waitingForCommitOrAbortOrTimeout(moneyTransaction))
+  }
+
+  def whileChangingBalance: Receive = canGetCurrentBalance
+      .orElse(canRejectInvalidChangeBalance)
+      .orElse(canVoteNoOnMoneyTransaction)
+      .orElse(canStashChangeBalanceCommand)
+      .orElse(canStashVoteRequest)
+      .orElse(showsLocked)
+      .orElse(canRespondToPreviousTransactionsCoordinators(null))
+
+  override def receiveCommand: Receive = canGetCurrentBalance
+      .orElse(canRejectInvalidChangeBalance)
+      .orElse(canChangeBalance)
+      .orElse(canVoteNoOnMoneyTransaction)
+      .orElse(canVoteYesOnMoneyTransaction)
+      .orElse(showsNotLocked)
+      .orElse(passivationSupport)
+      .orElse(canRespondToPreviousTransactionsCoordinators(null))
+
+
+  def waitingForCommitOrAbortOrTimeout(transaction: MoneyTransaction): Receive =
+    canGetCurrentBalance
+        .orElse(canRejectInvalidChangeBalance)
+        .orElse(canVoteNoOnMoneyTransaction)
+        .orElse(canStashChangeBalanceCommand)
+        .orElse(canStashVoteRequest)
+        .orElse(canRespondToPreviousTransactionsCoordinators(currentTransactionId = transaction.transactionId))
+        .orElse(showsLocked)
+        .orElse {
+
+            case Abort(accId, transId) if transId == transaction.transactionId =>
+              assert(accId == accountId)
+              // don't worry about sending an Ack here, since the coordinator can assume it's gonna time out anyway
+              timers.cancelAll()
+              coordinator = null
+              unstashAll()
+              context.become(receiveCommand, discardOld = true)
+
+            case TimedOut(transId) =>
+              assert(transId == transaction.transactionId)
+              coordinator = null
+              unstashAll()
+              context.become(receiveCommand, discardOld = true)
+
+            case Commit(accId, tId: String) if tId == transaction.transactionId =>
+              assert(accId == accountId)
+              timers.cancelAll()
+              val event = if (transaction.sourceAccountId == accountId) BalanceChanged(-transaction.amount) else BalanceChanged(transaction.amount)
+              persistAllAsync(List(transaction, event)) {
+                case _: MoneyTransaction => // do nothing
+                case e: BalanceChanged =>
+                  context.become(waitingForFinalizeOrRollback(transaction), discardOld = true)
+                  onEvent(e)
+                  activeBalance = previousBalance
+                  coordinator ! AckCommit(accountId, tId)
+              }
+        }
+
+  var alreadyReceived = false
+  def waitingForFinalizeOrRollback(transaction: MoneyTransaction): Receive =
+        canGetCurrentBalance
+            .orElse(canRejectInvalidChangeBalance)
+            .orElse(canVoteNoOnMoneyTransaction)
+            .orElse(canStashChangeBalanceCommand)
+            .orElse(canStashVoteRequest)
+            .orElse(showsLocked)
+            .orElse(canRespondToPreviousTransactionsCoordinators(transaction.transactionId))
+            .orElse {
+              case finalize @ Finalize(accId, t, deliveryId) if !alreadyReceived && t.transactionId == transaction.transactionId =>
+                assert(accId == accountId)
+                if (coordinator == null) coordinator = sender()
+                alreadyReceived = true
+                persistAsync(finalize) {
+                  _ => {
+                    alreadyReceived = false
+                    coordinator ! AckFinalize(accountId, transaction.transactionId, deliveryId)
+                    coordinator = null
+                    activeBalance = balance
+                    unstashAll()
+                    context.become(receiveCommand, discardOld = true) // going back to normal
+                  }
+                }
+
+              case rollback @ Rollback(accId, t, _) if !alreadyReceived && t.transactionId == transaction.transactionId =>
+                assert(accId == accountId)
+                if (coordinator == null) coordinator = sender()
+                val counterEvent = if (transaction.sourceAccountId == accountId) BalanceChanged(transaction.amount) else BalanceChanged(-transaction.amount)
+                alreadyReceived = true
+                persistAllAsync(List(counterEvent, rollback)) {
+                  case e: BalanceChanged =>
+                    onEvent(e)
+                    activeBalance = balance
+                  case r: Rollback =>
+                    alreadyReceived = false
+                    coordinator ! AckRollback(accountId, t.transactionId, r.deliveryId)
+                    coordinator = null
+                    unstashAll()
+                    context.become(receiveCommand, discardOld = true) // going back to normal
+                }
+          }
+
+  var uncompletedTransaction: MoneyTransaction = _
 
   override def receiveRecover: Receive = {
 
     case mt: MoneyTransaction =>
       uncompletedTransaction = mt
 
-    case r: Rollback =>
+    case _: Rollback =>
       uncompletedTransaction = null
 
-    case f: Finalize =>
+    case _: Finalize =>
       uncompletedTransaction = null
 
     case e @ BalanceChanged(_) =>

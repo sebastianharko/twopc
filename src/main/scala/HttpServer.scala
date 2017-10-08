@@ -10,6 +10,7 @@ import akka.stream.ActorMaterializer
 import org.json4s.{DefaultFormats, jackson}
 
 import scala.concurrent.duration._
+import scala.language.postfixOps
 
 
 object Main extends App {
@@ -35,12 +36,12 @@ object Main extends App {
     accountId => {
       get {
         complete {
-          (accounts ? Query(accountId)).mapTo[Int].map { case r => Map("amount" -> r) }
+          (accounts ? GetBalance(accountId)).mapTo[Int].map(r => Map("amount" -> r))
         }
       }
     }
   } ~ path("deposit" /  Segment / IntNumber) {
-      case (accountId, amount) => {
+      case (accountId, amount) =>
         post {
           complete {
             (accounts ? ChangeBalance(accountId, amount)).map {
@@ -48,17 +49,15 @@ object Main extends App {
               case Rejected(_) => Map("rejected" -> true)
             } }
           }
-        }
-    } ~ path("withdraw" / Segment / IntNumber) {
-     case (accountId, amount) => {
-        post {
-          complete {
-            (accounts ? ChangeBalance(accountId, - amount)).map {
-              case Accepted(_) => Map("completed" -> true)
-              case Rejected(_) => Map("rejected" -> true)
-            } }
-          }
-        }
+  } ~ path("withdraw" / Segment / IntNumber) {
+     case (accountId, amount) =>
+       post {
+         complete {
+           (accounts ? ChangeBalance(accountId, - amount)).map {
+             case Accepted(_) => Map("completed" -> true)
+             case Rejected(_) => Map("rejected" -> true)
+           } }
+         }
   }
 
   val bindingFuture = Http().bindAndHandle(route, scala.sys.env.getOrElse("POD_IP", "0.0.0.0"), 8080)
