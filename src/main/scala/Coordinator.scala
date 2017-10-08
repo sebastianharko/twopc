@@ -112,16 +112,13 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
   override def receiveCommand: Receive = {
 
     case transaction: MoneyTransaction =>
-
       assert(transaction.transactionId == self.path.name)
-
       persistAsync(transaction)(_ => phase = 'Initiated)
       onEvent(transaction)
       this.replyTo = sender()
       self ! StartVotingProcess
 
     case StartVotingProcess =>
-
       shardedAccounts ! Vote(moneyTransaction.sourceAccountId, moneyTransaction)
       shardedAccounts ! Vote(moneyTransaction.destinationAccountId, moneyTransaction)
       timers.startSingleTimer('WaitingForVotes, TimedOut(moneyTransaction.transactionId), VotingPhaseTimesOutAfter)
@@ -134,9 +131,7 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
   def waitingForVoteResults: Receive = {
 
     case TimedOut(transactionId) =>
-
       assert(transactionId == moneyTransaction.transactionId)
-
       replyTo ! Rejected(Some(moneyTransaction.transactionId))
       shardedAccounts ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
@@ -145,9 +140,7 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
       context.stop(self)
 
     case No(someAccountId) =>
-
       assert(someAccountId == moneyTransaction.sourceAccountId || someAccountId == moneyTransaction.destinationAccountId)
-
       replyTo ! Rejected(Some(moneyTransaction.transactionId))
       shardedAccounts ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
@@ -156,15 +149,12 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
       context.stop(self)
 
     case Yes(accId) =>
-
       assert(accId == moneyTransaction.sourceAccountId || accId == moneyTransaction.destinationAccountId)
-
       log.info("received yes vote")
       yesVotes +=  accId
       self ! Check
 
     case Check if yesVotes.size == 2 && phase == 'Initiated =>
-
       shardedAccounts ! Commit(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Commit(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
       timers.cancelAll()
@@ -183,16 +173,13 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
   def waitingForCommitAcks: Receive = {
 
     case AckCommit(accountId, transactionId) =>
-
       assert(transactionId == moneyTransaction.transactionId)
       assert(accountId == moneyTransaction.sourceAccountId || accountId == moneyTransaction.destinationAccountId)
-
       log.info("received ack for my commit message")
       commitAcksReceived += accountId
       self ! Check
 
     case Check =>
-
       if (commitAcksReceived.size == 2) {
         log.info("received two acks for my commit messages, moving forward")
         timers.cancelAll()
@@ -201,9 +188,7 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
       }
 
     case TimedOut(transactionId) =>
-
       assert(transactionId == moneyTransaction.transactionId)
-
       log.info("timed out while waiting for acks for my commit messages, now rolling back")
       self ! StartRollback
       context.become(rollingBack, discardOld = true)
@@ -214,17 +199,14 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
   def finalizing: Receive = {
 
     case StartFinalize =>
-
       log.info("sending finalize messages with at least once delivery")
       persistAsync(Finalizing(moneyTransaction.transactionId, moneyTransaction.sourceAccountId, moneyTransaction.destinationAccountId)){
         e => onEvent(e)
       }
 
     case ackFinalize @ AckFinalize(accountId, transactionId, _) =>
-
       assert(accountId == moneyTransaction.sourceAccountId || accountId == moneyTransaction.destinationAccountId)
       assert(transactionId == moneyTransaction.transactionId)
-
       log.info("received ack for finalize message")
       persistAsync(ackFinalize) { e =>
         onEvent(e)
@@ -232,7 +214,6 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
       }
 
     case Check =>
-
       if (ackFinalized.size == 2) {
         log.info("received two acks for finalize messages")
         replyTo ! Accepted(Some(moneyTransaction.transactionId))
@@ -244,22 +225,20 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
   def rollingBack: Receive = {
 
     case StartRollback =>
-
       log.info("sending rollback messages with at least once delivery")
       deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.sourceAccountId, moneyTransaction, id))
       deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.destinationAccountId, moneyTransaction, id))
       persistAsync(Rollingback(moneyTransaction.transactionId, moneyTransaction.sourceAccountId, moneyTransaction.destinationAccountId))(_ => ())
 
     case ackRollback @ AckRollback(accountId, transactionId, _) =>
-
       assert(accountId == moneyTransaction.sourceAccountId || accountId == moneyTransaction.destinationAccountId)
       assert(transactionId == moneyTransaction.transactionId)
-
       log.info("received ack for rollback message")
       persistAsync(ackRollback) { e =>
         onEvent(e)
         self ! Check
       }
+
     case Check =>
       if (ackRollBacked.size == 2) {
         log.info("received two acks for rollback messages")
