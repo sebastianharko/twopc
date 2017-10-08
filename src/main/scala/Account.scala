@@ -197,6 +197,7 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
       persistAsync(BalanceChanged(m)) {
         e => {
           onEvent(e)
+          activeBalance = balance
           replyTo ! Accepted()
           unstashAll()
           context.become(receiveCommand, discardOld = true)
@@ -330,9 +331,12 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
       onEvent(e)
 
     case RecoveryCompleted =>
-      if (uncompletedTransaction == null)
+      if (uncompletedTransaction == null) {
         log.info(s"recovery complete, balance is $balance")
-      else {
+        activeBalance = balance
+      } else {
+        log.info("recovery complete, transaction outstanding")
+        activeBalance = previousBalance
         context.become(waitingForFinalizeOrRollback(uncompletedTransaction))
       }
   }
