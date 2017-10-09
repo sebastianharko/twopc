@@ -139,6 +139,10 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
       log.info("timed out (voting process)")
       context.stop(self)
 
+    case AccountStashOverflow(someAccountId) =>
+      assert(someAccountId == moneyTransaction.sourceAccountId || someAccountId == moneyTransaction.destinationAccountId)
+      self ! No(someAccountId)
+
     case No(someAccountId) =>
       assert(someAccountId == moneyTransaction.sourceAccountId || someAccountId == moneyTransaction.destinationAccountId)
       replyTo ! Rejected(Some(moneyTransaction.transactionId))

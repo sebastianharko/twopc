@@ -47,7 +47,9 @@ object Main extends App {
             (accounts ? ChangeBalance(accountId, amount)).map {
               case Accepted(_) => Map("completed" -> true)
               case Rejected(_) => Map("rejected" -> true)
-            } }
+              case AccountStashOverflow(_) => Map("rejected" -> true)
+            }
+          }
           }
   } ~ path("withdraw" / Segment / IntNumber) {
      case (accountId, amount) =>

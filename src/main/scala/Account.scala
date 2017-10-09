@@ -3,7 +3,7 @@ package app
 import akka.actor.{ActorLogging, ActorRef, ActorSystem, Props, ReceiveTimeout, Stash, Timers}
 import akka.cluster.sharding.ShardRegion.{ExtractEntityId, ExtractShardId}
 import akka.cluster.sharding.{ClusterSharding, ClusterShardingSettings}
-import akka.persistence.{PersistentActor, RecoveryCompleted}
+import akka.persistence.{PersistentActor, RecoveryCompleted, ReplyToStrategy, StashOverflowStrategy}
 
 /*
 
@@ -46,6 +46,8 @@ case class BalanceChanged(amount: Int)
 case class GetBalance(accountId: String)
 
 case class IsLocked(accountId: String)
+
+case class AccountStashOverflow(accountId: String)
 
 object Sharding {
 
@@ -91,6 +93,8 @@ object AccountActor {
 case object Stop
 
 class AccountActor extends PersistentActor with ActorLogging with Timers with Stash {
+
+  override def internalStashOverflowStrategy: StashOverflowStrategy = ReplyToStrategy(AccountStashOverflow(accountId))
 
   import akka.cluster.sharding.ShardRegion.Passivate
 
