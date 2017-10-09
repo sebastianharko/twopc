@@ -99,9 +99,9 @@ object Coordinator {
 
   type AccountId = String
 
-  val VotingPhaseTimesOutAfter: FiniteDuration = 1 seconds
+  val VotingPhaseTimesOutAfter: FiniteDuration = 5 seconds
 
-  val WaitingForCommitPhaseTimesOutAfter: FiniteDuration = 1 second
+  val WaitingForCommitPhaseTimesOutAfter: FiniteDuration = 5 second
 
 }
 

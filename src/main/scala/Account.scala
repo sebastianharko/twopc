@@ -86,7 +86,7 @@ object Sharding {
 
 object AccountActor {
 
-  val CommitOrAbortTimeout: FiniteDuration = 400.milliseconds
+  val CommitOrAbortTimeout: FiniteDuration = 2 seconds
 
 }
 
