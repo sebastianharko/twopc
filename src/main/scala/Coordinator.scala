@@ -34,7 +34,12 @@ import scala.language.postfixOps
 case class MoneyTransaction(transactionId: String,
     sourceAccountId: String,
     destinationAccountId: String,
-    amount: Int)
+    amount: Int) {
+
+  require(sourceAccountId != destinationAccountId)
+  require( amount > 0)
+
+}
 
 case class Vote(accountId: String,
     moneyTransaction: MoneyTransaction)

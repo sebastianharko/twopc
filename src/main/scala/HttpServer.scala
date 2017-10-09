@@ -1,6 +1,6 @@
 package app
 
-import akka.actor.ActorSystem
+import akka.actor.{ActorSystem, Props}
 import akka.cluster.Cluster
 import akka.cluster.http.management.ClusterHttpManagement
 import akka.http.scaladsl.Http
@@ -46,8 +46,8 @@ object Main extends App {
           complete {
             (accounts ? ChangeBalance(accountId, amount)).map {
               case Accepted(_) => Map("completed" -> true)
-              case Rejected(_) => Map("rejected" -> true)
-              case AccountStashOverflow(_) => Map("rejected" -> true)
+              case Rejected(_) => Map("completed" -> false)
+              case AccountStashOverflow(_) => Map("completed" -> false)
             }
           }
           }
@@ -57,9 +57,24 @@ object Main extends App {
          complete {
            (accounts ? ChangeBalance(accountId, - amount)).map {
              case Accepted(_) => Map("completed" -> true)
-             case Rejected(_) => Map("rejected" -> true)
+             case Rejected(_) => Map("completed" -> false)
            } }
          }
+  } ~ path("transaction" / Segment / Segment / IntNumber) {
+    case (sourceAccountId, destinationAccountId, amount) => {
+      post {
+        complete {
+          val id = java.util.UUID.randomUUID().toString
+          val coordinator = system.actorOf(Props(new Coordinator(accounts)), id)
+          (coordinator ? MoneyTransaction(id, sourceAccountId, destinationAccountId, amount)).map {
+            case Accepted(_) => Map("completed" -> true)
+            case Rejected(_) => Map("completed" -> false)
+          }
+
+        }
+      }
+    }
+
   }
 
   val bindingFuture = Http().bindAndHandle(route, scala.sys.env.getOrElse("POD_IP", "0.0.0.0"), 8080)
