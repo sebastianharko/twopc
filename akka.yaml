@@ -11,7 +11,7 @@ spec:
     spec:
       containers:
       - name: twopc
-        image: sebastianharko/2pc:1.1
+        image: sebastianharko/2pc:1.6
         imagePullPolicy: Always
         env:
         - name: POD_IP
