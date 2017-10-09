@@ -37,7 +37,7 @@ case class MoneyTransaction(transactionId: String,
     amount: Int) {
 
   require(sourceAccountId != destinationAccountId)
-  require( amount > 0)
+  require( amount >= 0)
 
 }
 
