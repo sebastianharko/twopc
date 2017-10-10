@@ -32,6 +32,12 @@ object Main extends App {
 
   implicit val timeout = akka.util.Timeout(4 seconds)
 
+
+  val votingTimer = system.actorOf(Props(new TimeOutManager(Coordinator.MaxTimeOutForVotingPhase, alpha = 0.25, Coordinator.TimeOutForVotingPhase)), "voting timer")
+  val commitTimer = system.actorOf(Props(new TimeOutManager(Coordinator.MaxTimeOutForCommitPhase, alpha = 0.25, Coordinator.TimeOutForCommitPhase)), "commit timer")
+
+
+
   val route = path("query" / Segment) {
     accountId => {
       get {
@@ -65,7 +71,11 @@ object Main extends App {
       post {
         complete {
           val id = java.util.UUID.randomUUID().toString
-          val coordinator = system.actorOf(Props(new Coordinator(accounts)), id)
+          val coordinator = system.actorOf(Props(new Coordinator(accounts,
+            Coordinator.TimeOutForVotingPhase,
+            Coordinator.TimeOutForCommitPhase,
+            votingTimer,
+            commitTimer)), id)
           (coordinator ? MoneyTransaction(id, sourceAccountId, destinationAccountId, amount)).map {
             case Accepted(_) => Map("completed" -> true)
             case Rejected(_) => Map("completed" -> false)

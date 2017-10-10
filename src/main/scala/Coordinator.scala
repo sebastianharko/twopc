@@ -1,11 +1,12 @@
 package app
 
-import akka.actor.{ActorLogging, ActorRef, Timers}
+import java.util.concurrent.atomic.AtomicInteger
+
+import akka.actor.{Actor, ActorLogging, ActorRef, Timers}
 import akka.persistence.{AtLeastOnceDelivery, PersistentActor, RecoveryCompleted}
 import akka.testkit.TestActors
-
-import scala.collection.mutable
 import scala.concurrent.duration._
+import scala.collection.mutable
 import scala.language.postfixOps
 
 /*
@@ -29,6 +30,38 @@ import scala.language.postfixOps
                                                                  +------------------------+
 
 */
+
+case class StartTimer(id: String, at: Long)
+
+case class StopTimer(id: String, at: Long)
+
+class TimeOutManager(maximumTimeOutMillis: Int, alpha: Double, ref: AtomicInteger) extends Actor with Timers with ActorLogging {
+
+  private val exponentialMovingAverage = new ExponentialMovingAverage(alpha)
+  exponentialMovingAverage.add(maximumTimeOutMillis)
+  ref.set(exponentialMovingAverage.getCurrentValue.toInt)
+
+  val startTimes: mutable.Map[String, Long] = mutable.Map[String, Long]()
+
+  override def preStart(): Unit = {
+    super.preStart()
+    timers.startPeriodicTimer('R, 'Log, 3 seconds)
+  }
+
+  override def receive: Receive = {
+    case StartTimer(id: String, at: Long) =>
+      startTimes += id -> at
+    case StopTimer(id: String, at: Long) =>
+      var elapsed = at - startTimes(id)
+      startTimes.remove(id)
+      exponentialMovingAverage.add(elapsed)
+      ref.set(math.min(exponentialMovingAverage.getCurrentValue.toInt, maximumTimeOutMillis))
+    case 'Log =>
+      log.info(s"${self.path.name}'s recommended timeout at ${ref.get()} milliseconds")
+
+  }
+
+}
 
 
 case class MoneyTransaction(transactionId: String,
@@ -99,13 +132,21 @@ object Coordinator {
 
   type AccountId = String
 
-  val VotingPhaseTimesOutAfter: FiniteDuration = 5 seconds
+  val MaxTimeOutForVotingPhase = 4000
 
-  val WaitingForCommitPhaseTimesOutAfter: FiniteDuration = 5 second
+  val MaxTimeOutForCommitPhase = 4000
+
+  val TimeOutForVotingPhase = new AtomicInteger(MaxTimeOutForVotingPhase)
+
+  val TimeOutForCommitPhase = new AtomicInteger(MaxTimeOutForCommitPhase)
 
 }
 
-class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorLogging with Timers with AtLeastOnceDelivery {
+class Coordinator(shardedAccounts: ActorRef,
+    timeOutForVotingPhase: AtomicInteger = Coordinator.TimeOutForVotingPhase,
+    timeOutForCommitPhase: AtomicInteger = Coordinator.TimeOutForCommitPhase,
+    votingTimer: ActorRef,
+    commitTimer: ActorRef) extends PersistentActor with ActorLogging with Timers with AtLeastOnceDelivery {
 
   import Coordinator._
 
@@ -118,15 +159,16 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
 
     case transaction: MoneyTransaction =>
       assert(transaction.transactionId == self.path.name)
-      persistAsync(transaction)(_ => phase = 'Initiated)
+      persistAsync(transaction){ _ => phase = 'Initiated; self ! Check }
       onEvent(transaction)
       this.replyTo = sender()
       self ! StartVotingProcess
 
     case StartVotingProcess =>
+      votingTimer ! StartTimer(self.path.name, System.currentTimeMillis())
       shardedAccounts ! Vote(moneyTransaction.sourceAccountId, moneyTransaction)
       shardedAccounts ! Vote(moneyTransaction.destinationAccountId, moneyTransaction)
-      timers.startSingleTimer('WaitingForVotes, TimedOut(moneyTransaction.transactionId), VotingPhaseTimesOutAfter)
+      timers.startSingleTimer('WaitingForVotes, TimedOut(moneyTransaction.transactionId),timeOutForVotingPhase.get() milliseconds)
       context.become(waitingForVoteResults, discardOld = true)
       log.info("started voting process")
     }
@@ -137,6 +179,7 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
 
     case TimedOut(transactionId) =>
       assert(transactionId == moneyTransaction.transactionId)
+      votingTimer ! StopTimer(self.path.name, System.currentTimeMillis())
       replyTo ! Rejected(Some(moneyTransaction.transactionId))
       shardedAccounts ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
@@ -164,32 +207,38 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
       self ! Check
 
     case Check if yesVotes.size == 2 && phase == 'Initiated =>
+      votingTimer ! StopTimer(self.path.name, System.currentTimeMillis())
+      commitTimer ! StartTimer(self.path.name, System.currentTimeMillis())
       shardedAccounts ! Commit(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Commit(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
       timers.cancelAll()
-      timers.startSingleTimer('WaitingForCommitAcks, TimedOut(moneyTransaction.transactionId), WaitingForCommitPhaseTimesOutAfter)
+      timers.startSingleTimer('WaitingForCommitAcks, TimedOut(moneyTransaction.transactionId), timeOutForCommitPhase.get() milliseconds)
       log.info("received two yes votes and response from journal, moving forward")
-      context.become(waitingForCommitAcks, discardOld = true)
+      context.become(commitPhase, discardOld = true)
 
-    case Check if yesVotes.size == 2 =>
-      log.info("received two yes votes but no response from journal yet, let's check again later")
-      timers.startSingleTimer('CheckAgain, Check, VotingPhaseTimesOutAfter / 8)
+    case Check if yesVotes.size == 2 && phase != 'Initiated =>
+      log.info("received two yes votes but no response from journal, waiting")
+
+    case Check if phase == 'Initiated && yesVotes.size != 2 =>
+      log.info("received response from journal but still waiting for votes")
+
 
   }
 
-  val commitAcksReceived: mutable.Set[AccountId] = mutable.Set[AccountId]()
+  val commitAcknowledgementsReceived: mutable.Set[AccountId] = mutable.Set[AccountId]()
 
-  def waitingForCommitAcks: Receive = {
+  def commitPhase: Receive = {
 
     case AckCommit(accountId, transactionId) =>
       assert(transactionId == moneyTransaction.transactionId)
       assert(accountId == moneyTransaction.sourceAccountId || accountId == moneyTransaction.destinationAccountId)
       log.info("received ack for my commit message")
-      commitAcksReceived += accountId
+      commitAcknowledgementsReceived += accountId
       self ! Check
 
     case Check =>
-      if (commitAcksReceived.size == 2) {
+      if (commitAcknowledgementsReceived.size == 2) {
+        commitTimer ! StopTimer(self.path.name, System.currentTimeMillis())
         log.info("received two acks for my commit messages, moving forward")
         timers.cancelAll()
         self ! StartFinalize
@@ -197,11 +246,13 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
       }
 
     case TimedOut(transactionId) =>
+      commitTimer ! StopTimer(self.path.name, System.currentTimeMillis())
       assert(transactionId == moneyTransaction.transactionId)
       log.info("timed out while waiting for acks for my commit messages, now rolling back")
       self ! StartRollback
       context.become(rollingBack, discardOld = true)
   }
+
 
   val ackFinalized: mutable.Set[AccountId] = mutable.Set()
 

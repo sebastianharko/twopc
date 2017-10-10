@@ -1,9 +1,13 @@
 package app
 
-import akka.actor.{ActorRef, ActorSystem, Props}
-import akka.testkit.{ImplicitSender, TestActors, TestKit, TestProbe}
-import org.scalatest.{BeforeAndAfterAll, WordSpecLike}
+import java.util.concurrent.atomic.AtomicInteger
 
+import akka.actor.{ActorRef, ActorSystem, Props}
+import akka.testkit.{ImplicitSender, TestActors, TestKit}
+import akka.util.Timeout
+import org.scalatest.{BeforeAndAfterAll, FunSuite, WordSpecLike}
+
+import scala.collection.mutable
 import scala.concurrent.duration._
 
 class TestAccountSharding extends TestKit(ActorSystem("minimal")) with WordSpecLike
@@ -51,7 +55,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
   }
 
   val blackHole: ActorRef = system.actorOf(TestActors.blackholeProps)
-  implicit val timeout = akka.util.Timeout(2 seconds)
+  implicit val timeout = Timeout(2 seconds)
 
   "an account actor" must {
 
@@ -171,7 +175,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
       account ! IsLocked("94")
       expectMsg(true)
 
-      Thread.sleep(500)
+      Thread.sleep((1.25 * Coordinator.MaxTimeOutForCommitPhase).toInt)
 
       account ! GetBalance("94")
       expectMsg(50)
@@ -287,9 +291,40 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
 
   }
 
-
 }
 
+class TestTimeOutManager extends TestKit(ActorSystem("minimal")) with WordSpecLike
+    with ImplicitSender with  BeforeAndAfterAll {
+
+    override def afterAll {
+      TestKit.shutdownActorSystem(system)
+    }
+
+    val suggestedTimeOut = new AtomicInteger(1000)
+
+    "a timeout manager" must {
+
+      "work correctly" in {
+
+        val t = system.actorOf(Props(new TimeOutManager(0, alpha = 0.25, suggestedTimeOut)))
+
+        var s = List[Int]()
+
+        var prev: Int = 0
+
+        (1 to 10).foreach { i =>
+          t ! StartTimer(i.toString, 0)
+          t ! StopTimer(i.toString, i * 100)
+          Thread.sleep(25)
+          assert(suggestedTimeOut.get() > prev || prev == 0)
+          prev = suggestedTimeOut.get()
+
+        }
+
+      }
+
+    }
+}
 
 class TestCoordinator extends TestKit(ActorSystem("minimal")) with WordSpecLike
     with ImplicitSender with  BeforeAndAfterAll {
@@ -299,7 +334,7 @@ class TestCoordinator extends TestKit(ActorSystem("minimal")) with WordSpecLike
   }
 
   val blackHole: ActorRef = system.actorOf(TestActors.blackholeProps)
-  implicit val timeout = akka.util.Timeout(2 seconds)
+  implicit val timeout = Timeout(2 seconds)
 
   val accounts: ActorRef = Sharding.accounts(system)
 
@@ -308,10 +343,10 @@ class TestCoordinator extends TestKit(ActorSystem("minimal")) with WordSpecLike
     "be able to reject the transaction if no response from vote requests" in {
 
       val id = java.util.UUID.randomUUID().toString
-      val coordinator = system.actorOf(Props(new Coordinator(blackHole)), id)
+      val coordinator = system.actorOf(Props(new Coordinator(blackHole, votingTimer = blackHole, commitTimer = blackHole)), id)
       watch(coordinator)
       coordinator ! MoneyTransaction(id, "A", "B", 25)
-      expectMsg(Rejected(Some(id)))
+      expectMsg(1.25 * Coordinator.MaxTimeOutForVotingPhase milliseconds, Rejected(Some(id)))
       expectTerminated(coordinator)
 
     }
@@ -324,7 +359,7 @@ class TestCoordinator extends TestKit(ActorSystem("minimal")) with WordSpecLike
       expectMsg(Accepted())
 
       val id = java.util.UUID.randomUUID().toString
-      val coordinator = system.actorOf(Props(new Coordinator(accounts)), id)
+      val coordinator = system.actorOf(Props(new Coordinator(accounts, votingTimer = blackHole, commitTimer = blackHole)), id)
       watch(coordinator)
       coordinator ! MoneyTransaction(id, "A", "B", 500)
       expectMsg(Rejected(Some(id)))
@@ -340,7 +375,7 @@ class TestCoordinator extends TestKit(ActorSystem("minimal")) with WordSpecLike
       expectMsg(Accepted())
 
       val id = java.util.UUID.randomUUID().toString
-      val coordinator = system.actorOf(Props(new Coordinator(accounts)), id)
+      val coordinator = system.actorOf(Props(new Coordinator(accounts, votingTimer = blackHole, commitTimer = blackHole)), id)
       watch(coordinator)
       coordinator ! MoneyTransaction(id, "X", "Y", 50)
       expectMsg(Accepted(Some(id)))
