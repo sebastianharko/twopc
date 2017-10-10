@@ -293,39 +293,6 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
 
 }
 
-class TestTimeOutManager extends TestKit(ActorSystem("minimal")) with WordSpecLike
-    with ImplicitSender with  BeforeAndAfterAll {
-
-    override def afterAll {
-      TestKit.shutdownActorSystem(system)
-    }
-
-    val suggestedTimeOut = new AtomicInteger(1000)
-
-    "a timeout manager" must {
-
-      "work correctly" in {
-
-        val t = system.actorOf(Props(new TimeOutManager(0, alpha = 0.25, suggestedTimeOut)))
-
-        var s = List[Int]()
-
-        var prev: Int = 0
-
-        (1 to 10).foreach { i =>
-          t ! StartTimer(i.toString, 0)
-          t ! StopTimer(i.toString, i * 100)
-          Thread.sleep(25)
-          assert(suggestedTimeOut.get() > prev || prev == 0)
-          prev = suggestedTimeOut.get()
-
-        }
-
-      }
-
-    }
-}
-
 class TestCoordinator extends TestKit(ActorSystem("minimal")) with WordSpecLike
     with ImplicitSender with  BeforeAndAfterAll {
 
