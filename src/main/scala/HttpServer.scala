@@ -34,8 +34,8 @@ object Main extends App {
   implicit val timeout = akka.util.Timeout(4 seconds)
 
 
-  val votingTimer = system.actorOf(Props(new TimeOutManager(MaxTimeOutForVotingPhase, alpha = 0.25, TimeOutForVotingPhase)), "voting-timer")
-  val commitTimer = system.actorOf(Props(new TimeOutManager(MaxTimeOutForCommitPhase, alpha = 0.25, TimeOutForCommitPhase)), "commit-timer")
+  val votingTimer = system.actorOf(Props(new TimeOutManager(MaxTimeOutForVotingPhase, alpha = 0.10, TimeOutForVotingPhase)), "voting-timer")
+  val commitTimer = system.actorOf(Props(new TimeOutManager(MaxTimeOutForCommitPhase, alpha = 0.10, TimeOutForCommitPhase)), "commit-timer")
 
 
 

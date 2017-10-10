@@ -33,7 +33,7 @@ import scala.language.postfixOps
 
 case class StartTimer(id: String, at: Long)
 
-case class StopTimer(id: String, at: Long)
+case class StopTimer(id: String, at: Long, failed: Boolean = false)
 
 class TimeOutManager(maximumTimeOutMillis: Int, alpha: Double, ref: AtomicInteger) extends Actor with Timers with ActorLogging {
 
@@ -44,12 +44,16 @@ class TimeOutManager(maximumTimeOutMillis: Int, alpha: Double, ref: AtomicIntege
   override def receive: Receive = {
     case StartTimer(id: String, at: Long) =>
       startTimes += id -> at
-    case StopTimer(id: String, at: Long) if startTimes.contains(id) =>
+    case StopTimer(id: String, at: Long, failed: Boolean) if startTimes.contains(id) =>
       var elapsed = at - startTimes(id)
       startTimes.remove(id)
-      exponentialMovingAverage.add(elapsed)
+      if (!failed)
+       exponentialMovingAverage.add(elapsed)
+      else
+        exponentialMovingAverage.add(2 * elapsed)
       ref.set(math.min(exponentialMovingAverage.getCurrentValue.toInt, maximumTimeOutMillis))
       log.info(s"suggested timeout is ${ref.get()}")
+
   }
 
 }
@@ -187,7 +191,7 @@ class Coordinator(shardedAccounts: ActorRef,
 
     case TimedOut(transactionId) =>
       assert(transactionId == moneyTransaction.transactionId)
-      votingTimer ! StopTimer(self.path.name, System.currentTimeMillis())
+      votingTimer ! StopTimer(self.path.name, System.currentTimeMillis(), failed = true)
       replyTo ! Rejected(Some(moneyTransaction.transactionId))
       shardedAccounts ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
@@ -254,7 +258,7 @@ class Coordinator(shardedAccounts: ActorRef,
       }
 
     case TimedOut(transactionId) =>
-      commitTimer ! StopTimer(self.path.name, System.currentTimeMillis())
+      commitTimer ! StopTimer(self.path.name, System.currentTimeMillis(), failed = true)
       assert(transactionId == moneyTransaction.transactionId)
       log.info("timed out while waiting for acks for my commit messages, now rolling back")
       self ! StartRollback
