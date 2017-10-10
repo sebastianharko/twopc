@@ -38,27 +38,18 @@ case class StopTimer(id: String, at: Long)
 class TimeOutManager(maximumTimeOutMillis: Int, alpha: Double, ref: AtomicInteger) extends Actor with Timers with ActorLogging {
 
   private val exponentialMovingAverage = new ExponentialMovingAverage(alpha)
-  exponentialMovingAverage.add(maximumTimeOutMillis)
-  ref.set(exponentialMovingAverage.getCurrentValue.toInt)
 
   val startTimes: mutable.Map[String, Long] = mutable.Map[String, Long]()
-
-  override def preStart(): Unit = {
-    super.preStart()
-    timers.startPeriodicTimer('R, 'Log, 3 seconds)
-  }
 
   override def receive: Receive = {
     case StartTimer(id: String, at: Long) =>
       startTimes += id -> at
-    case StopTimer(id: String, at: Long) =>
+    case StopTimer(id: String, at: Long) if startTimes.contains(id) =>
       var elapsed = at - startTimes(id)
       startTimes.remove(id)
       exponentialMovingAverage.add(elapsed)
       ref.set(math.min(exponentialMovingAverage.getCurrentValue.toInt, maximumTimeOutMillis))
-    case 'Log =>
-      log.info(s"${self.path.name}'s recommended timeout at ${ref.get()} milliseconds")
-
+      log.info(s"suggested timeout is ${ref.get()}")
   }
 
 }
@@ -155,6 +146,23 @@ class Coordinator(shardedAccounts: ActorRef,
   var moneyTransaction: MoneyTransaction = _
   var replyTo: ActorRef = context.actorOf(TestActors.blackholeProps)
 
+  def getTimeOutForVothingPhase = {
+    val r = timeOutForVotingPhase.get()
+    if (r == 0)
+      Coordinator.MaxTimeOutForVotingPhase milliseconds
+    else
+      r milliseconds
+  }
+
+  def getTimeOutForCommitPhase = {
+    val r = timeOutForCommitPhase.get()
+    if (r == 0)
+      Coordinator.MaxTimeOutForCommitPhase milliseconds
+    else
+      r milliseconds
+  }
+
+
   override def receiveCommand: Receive = {
 
     case transaction: MoneyTransaction =>
@@ -168,7 +176,7 @@ class Coordinator(shardedAccounts: ActorRef,
       votingTimer ! StartTimer(self.path.name, System.currentTimeMillis())
       shardedAccounts ! Vote(moneyTransaction.sourceAccountId, moneyTransaction)
       shardedAccounts ! Vote(moneyTransaction.destinationAccountId, moneyTransaction)
-      timers.startSingleTimer('WaitingForVotes, TimedOut(moneyTransaction.transactionId),timeOutForVotingPhase.get() milliseconds)
+      timers.startSingleTimer('WaitingForVotes, TimedOut(moneyTransaction.transactionId), getTimeOutForVothingPhase)
       context.become(waitingForVoteResults, discardOld = true)
       log.info("started voting process")
     }
@@ -212,7 +220,7 @@ class Coordinator(shardedAccounts: ActorRef,
       shardedAccounts ! Commit(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Commit(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
       timers.cancelAll()
-      timers.startSingleTimer('WaitingForCommitAcks, TimedOut(moneyTransaction.transactionId), timeOutForCommitPhase.get() milliseconds)
+      timers.startSingleTimer('WaitingForCommitAcks, TimedOut(moneyTransaction.transactionId), getTimeOutForCommitPhase)
       log.info("received two yes votes and response from journal, moving forward")
       context.become(commitPhase, discardOld = true)
 

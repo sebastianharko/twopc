@@ -7,6 +7,7 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives.{complete, get, path, post, _}
 import akka.pattern.ask
 import akka.stream.ActorMaterializer
+import app.Coordinator.{MaxTimeOutForCommitPhase, MaxTimeOutForVotingPhase, TimeOutForCommitPhase, TimeOutForVotingPhase}
 import org.json4s.{DefaultFormats, jackson}
 
 import scala.concurrent.duration._
@@ -33,8 +34,8 @@ object Main extends App {
   implicit val timeout = akka.util.Timeout(4 seconds)
 
 
-  val votingTimer = system.actorOf(Props(new TimeOutManager(Coordinator.MaxTimeOutForVotingPhase, alpha = 0.25, Coordinator.TimeOutForVotingPhase)), "voting timer")
-  val commitTimer = system.actorOf(Props(new TimeOutManager(Coordinator.MaxTimeOutForCommitPhase, alpha = 0.25, Coordinator.TimeOutForCommitPhase)), "commit timer")
+  val votingTimer = system.actorOf(Props(new TimeOutManager(MaxTimeOutForVotingPhase, alpha = 0.25, TimeOutForVotingPhase)), "voting-timer")
+  val commitTimer = system.actorOf(Props(new TimeOutManager(MaxTimeOutForCommitPhase, alpha = 0.25, TimeOutForCommitPhase)), "commit-timer")
 
 
 
@@ -72,8 +73,8 @@ object Main extends App {
         complete {
           val id = java.util.UUID.randomUUID().toString
           val coordinator = system.actorOf(Props(new Coordinator(accounts,
-            Coordinator.TimeOutForVotingPhase,
-            Coordinator.TimeOutForCommitPhase,
+            TimeOutForVotingPhase,
+            TimeOutForCommitPhase,
             votingTimer,
             commitTimer)), id)
           (coordinator ? MoneyTransaction(id, sourceAccountId, destinationAccountId, amount)).map {

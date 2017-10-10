@@ -1,13 +1,10 @@
 package app
 
-import java.util.concurrent.atomic.AtomicInteger
-
 import akka.actor.{ActorRef, ActorSystem, Props}
 import akka.testkit.{ImplicitSender, TestActors, TestKit}
 import akka.util.Timeout
-import org.scalatest.{BeforeAndAfterAll, FunSuite, WordSpecLike}
+import org.scalatest.{BeforeAndAfterAll, WordSpecLike}
 
-import scala.collection.mutable
 import scala.concurrent.duration._
 
 class TestAccountSharding extends TestKit(ActorSystem("minimal")) with WordSpecLike
