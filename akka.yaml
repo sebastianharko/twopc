@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: twopc
 spec:
-  replicas: 6
+  replicas: 4
   template:
     metadata:
       labels:
@@ -11,17 +11,17 @@ spec:
     spec:
       containers:
       - name: twopc
-        image: sebastianharko/2pc:2.1
+        image: sebastianharko/2pc:2.2
         imagePullPolicy: Always
         env:
         - name: HTTP_TIMEOUT
-          value: "500"
+          value: "520"
         - name: ACCOUNT_TIMEOUT
-          value: "200"
+          value: "300"
         - name: VOTING_TIMEOUT
-          value: "100"
+          value: "300"
         - name: COMMIT_TIMEOUT
-          value: "100"   
+          value: "150"   
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -32,11 +32,11 @@ spec:
         - containerPort: 2551
         resources:
           requests:
-            cpu: 0.5
-            memory: 512Mi
+            cpu: 3
+            memory: 6Gi 
           limits:
-            cpu: 1.5
-            memory: 1Gi
+            cpu: 3
+            memory: 6Gi
 ---
 kind: Service
 apiVersion: v1

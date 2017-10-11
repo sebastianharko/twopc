@@ -1,6 +1,6 @@
 name := "2pc"
 
-version := "2.1"
+version := "2.2"
 
 scalaVersion := "2.12.3"
 
@@ -56,7 +56,9 @@ dockerEntrypoint ++= Seq(
   "-XX:+UnlockExperimentalVMOptions",
   "-XX:+UseCGroupMemoryLimitForHeap",
   "-XX:MaxRAMFraction=1",
-  "-XshowSettings:vm"
+  "-XshowSettings:vm",
+  "-XX:+UseG1GC",
+  "-XX:+AggressiveOpts"
 )
 
 
