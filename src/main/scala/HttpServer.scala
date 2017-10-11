@@ -7,7 +7,6 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives.{complete, get, path, post, _}
 import akka.pattern.ask
 import akka.stream.ActorMaterializer
-import app.Coordinator.{TimeOutForCommitPhase, TimeOutForVotingPhase}
 import org.json4s.{DefaultFormats, jackson}
 
 import scala.concurrent.duration._
