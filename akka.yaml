@@ -44,3 +44,19 @@ spec:
   type: LoadBalancer
   loadBalancerSourceRanges:
     - 0.0.0.0/0
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: twopc-akkamgmt
+spec:
+  selector:
+    app: twopc
+  ports:
+    - protocol: TCP
+      port: 19999
+      targetPort: 19999 
+  type: LoadBalancer
+  loadBalancerSourceRanges:
+    - 0.0.0.0/0
+
