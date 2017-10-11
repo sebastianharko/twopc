@@ -31,7 +31,8 @@ object Main extends App {
   implicit val serialization = jackson.Serialization
   implicit val formats = DefaultFormats
 
-  implicit val timeout = akka.util.Timeout(4 seconds)
+  val HttpTimeout = sys.env.get("HTTP_TIMEOUT").map(_.toLong milliseconds).getOrElse(1500 milliseconds)
+  implicit val timeout = akka.util.Timeout(HttpTimeout)
 
 
   val votingTimer = system.actorOf(Props(new TimeOutManager()), "voting-timer")
