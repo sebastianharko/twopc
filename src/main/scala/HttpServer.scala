@@ -3,6 +3,7 @@ package app
 import akka.actor.{ActorSystem, Props}
 import akka.cluster.Cluster
 import akka.cluster.http.management.ClusterHttpManagement
+import akka.event.Logging
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives.{complete, get, path, post, _}
 import akka.pattern.ask
@@ -12,10 +13,13 @@ import org.json4s.{DefaultFormats, jackson}
 import scala.concurrent.duration._
 import scala.language.postfixOps
 
+class Main
 
 object Main extends App {
 
   implicit val system = ActorSystem("minimal")
+
+  val logging = Logging(system, classOf[Main])
 
   ClusterHttpManagement(Cluster(system)).start()
 
@@ -36,6 +40,11 @@ object Main extends App {
 
   val votingTimer = system.actorOf(Props(new TimeOutManager()), "voting-timer")
   val commitTimer = system.actorOf(Props(new TimeOutManager()), "commit-timer")
+
+  logging.info("HTTP_TIMEOUT is {}",  HttpTimeout._1)
+  logging.info("ACCOUNT_TIMEOUT is {}", AccountActor.CommitOrAbortTimeout._1)
+  logging.info("VOTING_TIMEOUT is {}", Coordinator.TimeOutForVotingPhase._1)
+  logging.info("COMMIT_TIMEOUT is {}", Coordinator.TimeOutForCommitPhase._1)
 
 
 

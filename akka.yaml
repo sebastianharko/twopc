@@ -11,17 +11,17 @@ spec:
     spec:
       containers:
       - name: twopc
-        image: sebastianharko/2pc:2.0
+        image: sebastianharko/2pc:2.1
         imagePullPolicy: Always
         env:
         - name: HTTP_TIMEOUT
-          value: "600"
+          value: "500"
         - name: ACCOUNT_TIMEOUT
-          value: "300"
+          value: "200"
         - name: VOTING_TIMEOUT
           value: "100"
         - name: COMMIT_TIMEOUT
-          value: "300"   
+          value: "100"   
         - name: POD_IP
           valueFrom:
             fieldRef:
