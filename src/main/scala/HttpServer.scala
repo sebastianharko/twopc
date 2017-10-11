@@ -1,5 +1,7 @@
 package app
 
+import java.util.concurrent.ThreadLocalRandom
+
 import akka.actor.{ActorSystem, Props}
 import akka.cluster.Cluster
 import akka.cluster.http.management.ClusterHttpManagement
@@ -77,7 +79,7 @@ object Main extends App {
     case (sourceAccountId, destinationAccountId, amount) => {
       post {
         complete {
-          val id = java.util.UUID.randomUUID().toString
+          val id = ThreadLocalRandom.current().nextInt(0, Int.MaxValue).toString
           val coordinator = system.actorOf(Props(new Coordinator(accounts)), id)
           (coordinator ? MoneyTransaction(id, sourceAccountId, destinationAccountId, amount)).map {
             case Accepted(_) => Map("completed" -> true)
