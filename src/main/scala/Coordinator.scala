@@ -1,6 +1,6 @@
 package app
 
-import akka.actor.{Actor, ActorLogging, ActorRef, Timers}
+import akka.actor.{ActorLogging, ActorRef, Timers}
 import akka.persistence.{AtLeastOnceDelivery, PersistentActor, RecoveryCompleted}
 import akka.testkit.TestActors
 
@@ -33,20 +33,6 @@ import scala.language.postfixOps
 case class StartTimer(id: String, at: Long)
 
 case class StopTimer(id: String, at: Long, failed: Boolean = false)
-
-class TimeOutManager() extends Actor with Timers with ActorLogging {
-
-  val startTimes: mutable.Map[String, Long] = mutable.Map[String, Long]()
-
-  override def receive: Receive = {
-    case StartTimer(id: String, at: Long) =>
-      startTimes += id -> at
-    case StopTimer(id: String, at: Long, failed: Boolean) if startTimes.contains(id) =>
-      var elapsed = at - startTimes(id)
-      startTimes.remove(id)
-  }
-
-}
 
 
 case class MoneyTransaction(transactionId: String,
@@ -123,7 +109,7 @@ object Coordinator {
 
 }
 
-class Coordinator(shardedAccounts: ActorRef, votingTimer: ActorRef, commitTimer: ActorRef) extends PersistentActor with ActorLogging with Timers with AtLeastOnceDelivery {
+class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorLogging with Timers with AtLeastOnceDelivery {
 
   import Coordinator._
 
@@ -136,19 +122,16 @@ class Coordinator(shardedAccounts: ActorRef, votingTimer: ActorRef, commitTimer:
   override def receiveCommand: Receive = {
 
     case transaction: MoneyTransaction =>
-      assert(transaction.transactionId == self.path.name)
       persistAsync(transaction) { _ => phase = 'Initiated; self ! Check }
       onEvent(transaction)
       this.replyTo = sender()
       self ! StartVotingProcess
 
     case StartVotingProcess =>
-      votingTimer ! StartTimer(self.path.name, System.currentTimeMillis())
       shardedAccounts ! Vote(moneyTransaction.sourceAccountId, moneyTransaction)
       shardedAccounts ! Vote(moneyTransaction.destinationAccountId, moneyTransaction)
       timers.startSingleTimer('WaitingForVotes, TimedOut(moneyTransaction.transactionId), TimeOutForVotingPhase)
       context.become(waitingForVoteResults, discardOld = true)
-      log.info("started voting process")
   }
 
   val yesVotes: mutable.Set[AccountId] = mutable.Set[AccountId]()
@@ -156,50 +139,32 @@ class Coordinator(shardedAccounts: ActorRef, votingTimer: ActorRef, commitTimer:
   def waitingForVoteResults: Receive = {
 
     case TimedOut(transactionId) =>
-      assert(transactionId == moneyTransaction.transactionId)
-      votingTimer ! StopTimer(self.path.name, System.currentTimeMillis(), failed = true)
       replyTo ! Rejected(Some(moneyTransaction.transactionId))
       shardedAccounts ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
       timers.cancelAll()
-      log.info("timed out (voting process)")
       context.stop(self)
 
     case AccountStashOverflow(someAccountId) =>
-      assert(someAccountId == moneyTransaction.sourceAccountId || someAccountId == moneyTransaction.destinationAccountId)
       self ! No(someAccountId)
 
     case No(someAccountId) =>
-      assert(someAccountId == moneyTransaction.sourceAccountId || someAccountId == moneyTransaction.destinationAccountId)
       replyTo ! Rejected(Some(moneyTransaction.transactionId))
       shardedAccounts ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
       timers.cancelAll()
-      log.info("one of the participants voted no")
       context.stop(self)
 
     case Yes(accId) =>
-      assert(accId == moneyTransaction.sourceAccountId || accId == moneyTransaction.destinationAccountId)
-      log.info("received yes vote")
       yesVotes += accId
       self ! Check
 
     case Check if yesVotes.size == 2 && phase == 'Initiated =>
-      votingTimer ! StopTimer(self.path.name, System.currentTimeMillis())
-      commitTimer ! StartTimer(self.path.name, System.currentTimeMillis())
       shardedAccounts ! Commit(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Commit(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
       timers.cancelAll()
       timers.startSingleTimer('WaitingForCommitAcks, TimedOut(moneyTransaction.transactionId), TimeOutForCommitPhase)
-      log.info("received two yes votes and response from journal, moving forward")
       context.become(commitPhase, discardOld = true)
-
-    case Check if yesVotes.size == 2 && phase != 'Initiated =>
-      log.info("received two yes votes but no response from journal, waiting")
-
-    case Check if phase == 'Initiated && yesVotes.size != 2 =>
-      log.info("received response from journal but still waiting for votes")
-
 
   }
 
@@ -208,25 +173,17 @@ class Coordinator(shardedAccounts: ActorRef, votingTimer: ActorRef, commitTimer:
   def commitPhase: Receive = {
 
     case AckCommit(accountId, transactionId) =>
-      assert(transactionId == moneyTransaction.transactionId)
-      assert(accountId == moneyTransaction.sourceAccountId || accountId == moneyTransaction.destinationAccountId)
-      log.info("received ack for my commit message")
       commitAcknowledgementsReceived += accountId
       self ! Check
 
     case Check =>
       if (commitAcknowledgementsReceived.size == 2) {
-        commitTimer ! StopTimer(self.path.name, System.currentTimeMillis())
-        log.info("received two acks for my commit messages, moving forward")
         timers.cancelAll()
         self ! StartFinalize
         context.become(finalizing, discardOld = true)
       }
 
     case TimedOut(transactionId) =>
-      commitTimer ! StopTimer(self.path.name, System.currentTimeMillis(), failed = true)
-      assert(transactionId == moneyTransaction.transactionId)
-      log.info("timed out while waiting for acks for my commit messages, now rolling back")
       self ! StartRollback
       context.become(rollingBack, discardOld = true)
   }
@@ -237,15 +194,11 @@ class Coordinator(shardedAccounts: ActorRef, votingTimer: ActorRef, commitTimer:
   def finalizing: Receive = {
 
     case StartFinalize =>
-      log.info("sending finalize messages with at least once delivery")
       persistAsync(Finalizing(moneyTransaction.transactionId, moneyTransaction.sourceAccountId, moneyTransaction.destinationAccountId)) {
         e => onEvent(e)
       }
 
     case ackFinalize@AckFinalize(accountId, transactionId, _) =>
-      assert(accountId == moneyTransaction.sourceAccountId || accountId == moneyTransaction.destinationAccountId)
-      assert(transactionId == moneyTransaction.transactionId)
-      log.info("received ack for finalize message")
       persistAsync(ackFinalize) { e =>
         onEvent(e)
         self ! Check
@@ -253,7 +206,6 @@ class Coordinator(shardedAccounts: ActorRef, votingTimer: ActorRef, commitTimer:
 
     case Check =>
       if (ackFinalized.size == 2) {
-        log.info("received two acks for finalize messages")
         replyTo ! Accepted(Some(moneyTransaction.transactionId))
         context.stop(self)
       }
@@ -264,15 +216,11 @@ class Coordinator(shardedAccounts: ActorRef, votingTimer: ActorRef, commitTimer:
   def rollingBack: Receive = {
 
     case StartRollback =>
-      log.info("sending rollback messages with at least once delivery")
       deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.sourceAccountId, moneyTransaction, id))
       deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.destinationAccountId, moneyTransaction, id))
       persistAsync(Rollingback(moneyTransaction.transactionId, moneyTransaction.sourceAccountId, moneyTransaction.destinationAccountId))(_ => ())
 
     case ackRollback@AckRollback(accountId, transactionId, _) =>
-      assert(accountId == moneyTransaction.sourceAccountId || accountId == moneyTransaction.destinationAccountId)
-      assert(transactionId == moneyTransaction.transactionId)
-      log.info("received ack for rollback message")
       persistAsync(ackRollback) { e =>
         onEvent(e)
         self ! Check
@@ -280,7 +228,6 @@ class Coordinator(shardedAccounts: ActorRef, votingTimer: ActorRef, commitTimer:
 
     case Check =>
       if (ackRollBacked.size == 2) {
-        log.info("received two acks for rollback messages")
         replyTo ! Rejected(Some(moneyTransaction.transactionId))
         context.stop(self)
       }

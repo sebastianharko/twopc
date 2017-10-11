@@ -38,9 +38,6 @@ object Main extends App {
   implicit val timeout = akka.util.Timeout(HttpTimeout)
 
 
-  val votingTimer = system.actorOf(Props(new TimeOutManager()), "voting-timer")
-  val commitTimer = system.actorOf(Props(new TimeOutManager()), "commit-timer")
-
   logging.info("HTTP_TIMEOUT is {}",  HttpTimeout._1)
   logging.info("ACCOUNT_TIMEOUT is {}", AccountActor.CommitOrAbortTimeout._1)
   logging.info("VOTING_TIMEOUT is {}", Coordinator.TimeOutForVotingPhase._1)
@@ -81,7 +78,7 @@ object Main extends App {
       post {
         complete {
           val id = java.util.UUID.randomUUID().toString
-          val coordinator = system.actorOf(Props(new Coordinator(accounts, votingTimer, commitTimer)), id)
+          val coordinator = system.actorOf(Props(new Coordinator(accounts)), id)
           (coordinator ? MoneyTransaction(id, sourceAccountId, destinationAccountId, amount)).map {
             case Accepted(_) => Map("completed" -> true)
             case Rejected(_) => Map("completed" -> false)
