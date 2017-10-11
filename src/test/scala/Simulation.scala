@@ -33,7 +33,7 @@ class BasicSimulation extends Simulation {
   )
 
 
-  setUp(scn1.inject(constantUsersPerSec(50) during(time minutes))).protocols(httpConf)
+  setUp(scn1.inject(constantUsersPerSec(users) during(time minutes))).protocols(httpConf)
 
 }
 
