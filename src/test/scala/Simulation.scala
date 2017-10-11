@@ -11,9 +11,11 @@ import scala.util.Random
 
 class BasicSimulation extends Simulation {
 
+  val population = sys.env.get("POPULATION").map(_.toInt).getOrElse(400)
+
   val feeder : Iterator[Map[String, Any]] = Iterator.continually {
-    val from = Random.nextInt(400).toString
-    val to = Random.nextInt(400).toString
+    val from = Random.nextInt(population).toString
+    val to = Random.nextInt(population).toString
     Map("from" -> from, "to" -> to)
   }
 
