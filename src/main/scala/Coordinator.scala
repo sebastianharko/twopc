@@ -138,7 +138,7 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
 
   def waitingForVoteResults: Receive = {
 
-    case TimedOut(transactionId) =>
+    case TimedOut(_) =>
       replyTo ! Rejected(Some(moneyTransaction.transactionId))
       shardedAccounts ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)

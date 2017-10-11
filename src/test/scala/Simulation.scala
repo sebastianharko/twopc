@@ -18,6 +18,9 @@ class BasicSimulation extends Simulation {
   }
 
  val host = sys.env.getOrElse("APP_IP_PORT", "localhost:8080")
+ val users = sys.env.get("USERS").map(_.toInt).getOrElse(50)
+ val time = sys.env.get("PERIOD").map(_.toInt).getOrElse(10)
+
 
   def action: String = "transaction"
 
@@ -30,7 +33,7 @@ class BasicSimulation extends Simulation {
   )
 
 
-  setUp(scn1.inject(constantUsersPerSec(50) during(10 minutes))).protocols(httpConf)
+  setUp(scn1.inject(constantUsersPerSec(50) during(time minutes))).protocols(httpConf)
 
 }
 
