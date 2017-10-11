@@ -135,7 +135,7 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
   }
 
   def canGetCurrentBalance: Receive = {
-    case GetBalance(accId) =>
+    case GetBalance(_) =>
       sender() ! activeBalance
   }
 
@@ -148,33 +148,33 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
   }
 
   def showsLocked: Receive = {
-    case IsLocked(accId) =>
+    case IsLocked(_) =>
       sender() ! true
   }
 
   def showsNotLocked: Receive = {
-    case IsLocked(accId) =>
+    case IsLocked(_) =>
       sender() ! false
   }
 
   def canRejectInvalidChangeBalance: Receive = {
-    case c @ ChangeBalance(accId, _) if !validate(c) =>
+    case c @ ChangeBalance(_, _) if !validate(c) =>
       sender() ! Rejected()
   }
 
   def canVoteNoOnMoneyTransaction: Receive = {
-    case Vote(accId, moneyTransaction: MoneyTransaction) if !validateMoneyTransaction(moneyTransaction) =>
+    case Vote(_, moneyTransaction: MoneyTransaction) if !validateMoneyTransaction(moneyTransaction) =>
       sender() ! No(accountId)
   }
 
   def canStashChangeBalanceCommand: Receive = {
 
-    case c@ChangeBalance(accId, _) if validate(c) =>
+    case c : ChangeBalance if validate(c) =>
       stash()
   }
 
   def canStashVoteRequest: Receive = {
-    case Vote(accId, moneyTransaction) if validateMoneyTransaction(moneyTransaction) =>
+    case Vote(_, moneyTransaction) if validateMoneyTransaction(moneyTransaction) =>
       stash()
   }
 
@@ -185,7 +185,7 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
 
   var replyTo: ActorRef = _ // for ChangeBalance
   def canChangeBalance: Receive = {
-    case c @ ChangeBalance(accId, m) if validate(c) =>
+    case c @ ChangeBalance(_, m) if validate(c) =>
       replyTo = sender()
       context.become(whileChangingBalance, discardOld = true)
       persistAsync(BalanceChanged(m)) {
@@ -201,7 +201,7 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
 
   var coordinator: ActorRef = _
   def canVoteYesOnMoneyTransaction: Receive = {
-    case Vote(accId, moneyTransaction: MoneyTransaction) if validateMoneyTransaction(moneyTransaction) =>
+    case Vote(_, moneyTransaction: MoneyTransaction) if validateMoneyTransaction(moneyTransaction) =>
       coordinator = sender()
       coordinator ! Yes(accountId)
       timers.startSingleTimer(0, TimedOut(moneyTransaction.transactionId), AccountActor.CommitOrAbortTimeout)
@@ -236,19 +236,19 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
         .orElse(showsLocked)
         .orElse {
 
-            case Abort(accId, transId) if transId == transaction.transactionId =>
+            case Abort(_, transId) if transId == transaction.transactionId =>
               // don't worry about sending an Ack here, since the coordinator can assume it's gonna time out anyway
               timers.cancelAll()
               coordinator = null
               unstashAll()
               context.become(receiveCommand, discardOld = true)
 
-            case TimedOut(transId) =>
+            case TimedOut(_) =>
               coordinator = null
               unstashAll()
               context.become(receiveCommand, discardOld = true)
 
-            case Commit(accId, tId: String) if tId == transaction.transactionId =>
+            case Commit(_, tId: String) if tId == transaction.transactionId =>
               timers.cancelAll()
               val event = if (transaction.sourceAccountId == accountId) BalanceChanged(-transaction.amount) else BalanceChanged(transaction.amount)
               persistAllAsync(List(transaction, event)) {
@@ -271,7 +271,7 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
             .orElse(showsLocked)
             .orElse(canRespondToPreviousTransactionsCoordinators(transaction.transactionId))
             .orElse {
-              case finalize @ Finalize(accId, t, deliveryId) if !alreadyReceived && t.transactionId == transaction.transactionId =>
+              case finalize @ Finalize(_, t, deliveryId) if !alreadyReceived && t.transactionId == transaction.transactionId =>
                 if (coordinator == null) coordinator = sender()
                 alreadyReceived = true
                 persistAsync(finalize) {
@@ -285,7 +285,7 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
                   }
                 }
 
-              case rollback @ Rollback(accId, t, _) if !alreadyReceived && t.transactionId == transaction.transactionId =>
+              case rollback @ Rollback(_, t, _) if !alreadyReceived && t.transactionId == transaction.transactionId =>
                 if (coordinator == null) coordinator = sender()
                 val counterEvent = if (transaction.sourceAccountId == accountId) BalanceChanged(transaction.amount) else BalanceChanged(-transaction.amount)
                 alreadyReceived = true

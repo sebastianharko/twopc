@@ -148,7 +148,7 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
     case AccountStashOverflow(someAccountId) =>
       self ! No(someAccountId)
 
-    case No(someAccountId) =>
+    case No(_) =>
       replyTo ! Rejected(Some(moneyTransaction.transactionId))
       shardedAccounts ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
@@ -172,7 +172,7 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
 
   def commitPhase: Receive = {
 
-    case AckCommit(accountId, transactionId) =>
+    case AckCommit(accountId, _) =>
       commitAcknowledgementsReceived += accountId
       self ! Check
 
@@ -183,7 +183,7 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
         context.become(finalizing, discardOld = true)
       }
 
-    case TimedOut(transactionId) =>
+    case TimedOut(_) =>
       self ! StartRollback
       context.become(rollingBack, discardOld = true)
   }
@@ -198,7 +198,7 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
         e => onEvent(e)
       }
 
-    case ackFinalize@AckFinalize(accountId, transactionId, _) =>
+    case ackFinalize@AckFinalize(_, _, _) =>
       persistAsync(ackFinalize) { e =>
         onEvent(e)
         self ! Check
@@ -220,7 +220,7 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
       deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.destinationAccountId, moneyTransaction, id))
       persistAsync(Rollingback(moneyTransaction.transactionId, moneyTransaction.sourceAccountId, moneyTransaction.destinationAccountId))(_ => ())
 
-    case ackRollback@AckRollback(accountId, transactionId, _) =>
+    case ackRollback@AckRollback(_, _, _) =>
       persistAsync(ackRollback) { e =>
         onEvent(e)
         self ! Check
