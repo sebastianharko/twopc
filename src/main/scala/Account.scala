@@ -86,7 +86,7 @@ object Sharding {
 
 object AccountActor {
 
-  val CommitOrAbortTimeout: FiniteDuration = 2 seconds
+  val CommitOrAbortTimeout: FiniteDuration = sys.env.get("ACCOUNT_TIMEOUT").map(_.toInt).map(_ milliseconds).getOrElse(600 milliseconds)
 
 }
 

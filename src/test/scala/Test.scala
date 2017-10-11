@@ -6,6 +6,7 @@ import akka.util.Timeout
 import org.scalatest.{BeforeAndAfterAll, WordSpecLike}
 
 import scala.concurrent.duration._
+import scala.language.postfixOps
 
 class TestAccountSharding extends TestKit(ActorSystem("minimal")) with WordSpecLike
   with ImplicitSender with BeforeAndAfterAll {
@@ -172,7 +173,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
       account ! IsLocked("94")
       expectMsg(true)
 
-      Thread.sleep((1.25 * Coordinator.MaxTimeOutForCommitPhase).toInt)
+      Thread.sleep(1000)
 
       account ! GetBalance("94")
       expectMsg(50)
@@ -310,7 +311,7 @@ class TestCoordinator extends TestKit(ActorSystem("minimal")) with WordSpecLike
       val coordinator = system.actorOf(Props(new Coordinator(blackHole, votingTimer = blackHole, commitTimer = blackHole)), id)
       watch(coordinator)
       coordinator ! MoneyTransaction(id, "A", "B", 25)
-      expectMsg(1.25 * Coordinator.MaxTimeOutForVotingPhase milliseconds, Rejected(Some(id)))
+      expectMsg((1.25 * Coordinator.TimeOutForVotingPhase)._1 milliseconds, Rejected(Some(id)))
       expectTerminated(coordinator)
 
     }

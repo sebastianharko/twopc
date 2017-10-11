@@ -7,7 +7,7 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives.{complete, get, path, post, _}
 import akka.pattern.ask
 import akka.stream.ActorMaterializer
-import app.Coordinator.{MaxTimeOutForCommitPhase, MaxTimeOutForVotingPhase, TimeOutForCommitPhase, TimeOutForVotingPhase}
+import app.Coordinator.{TimeOutForCommitPhase, TimeOutForVotingPhase}
 import org.json4s.{DefaultFormats, jackson}
 
 import scala.concurrent.duration._
@@ -34,8 +34,8 @@ object Main extends App {
   implicit val timeout = akka.util.Timeout(4 seconds)
 
 
-  val votingTimer = system.actorOf(Props(new TimeOutManager(MaxTimeOutForVotingPhase, alpha = 0.10, TimeOutForVotingPhase)), "voting-timer")
-  val commitTimer = system.actorOf(Props(new TimeOutManager(MaxTimeOutForCommitPhase, alpha = 0.10, TimeOutForCommitPhase)), "commit-timer")
+  val votingTimer = system.actorOf(Props(new TimeOutManager()), "voting-timer")
+  val commitTimer = system.actorOf(Props(new TimeOutManager()), "commit-timer")
 
 
 
@@ -72,11 +72,7 @@ object Main extends App {
       post {
         complete {
           val id = java.util.UUID.randomUUID().toString
-          val coordinator = system.actorOf(Props(new Coordinator(accounts,
-            TimeOutForVotingPhase,
-            TimeOutForCommitPhase,
-            votingTimer,
-            commitTimer)), id)
+          val coordinator = system.actorOf(Props(new Coordinator(accounts, votingTimer, commitTimer)), id)
           (coordinator ? MoneyTransaction(id, sourceAccountId, destinationAccountId, amount)).map {
             case Accepted(_) => Map("completed" -> true)
             case Rejected(_) => Map("completed" -> false)
