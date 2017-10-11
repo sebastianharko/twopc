@@ -1,6 +1,6 @@
 name := "2pc"
 
-version := "1.9"
+version := "2.0"
 
 scalaVersion := "2.12.3"
 
