@@ -2,7 +2,7 @@ package app
 
 import java.util.concurrent.ThreadLocalRandom
 
-import akka.actor.{ActorSystem, Props}
+import akka.actor.{ActorRef, ActorSystem, Props}
 import akka.cluster.Cluster
 import akka.cluster.http.management.ClusterHttpManagement
 import akka.event.Logging
@@ -50,8 +50,8 @@ object Main extends App {
     accountId => {
       get {
         complete {
-          implicit val timeout = akka.util.Timeout(350 milliseconds)
-          (accounts ? GetBalance(accountId)).mapTo[Int].map(r => Map("amount" -> r))
+          val timeout = akka.util.Timeout(350 milliseconds)
+          accounts.ask(GetBalance(accountId))(timeout, ActorRef.noSender).mapTo[Int].map(r => Map("amount" -> r))
         }
       }
     }
