@@ -75,13 +75,12 @@ object Main extends App {
              case Rejected(_) => Map("completed" -> false)
            } }
          }
-  } ~ path("transaction" / Segment / Segment / IntNumber) {
-    case (sourceAccountId, destinationAccountId, amount) => {
+  } ~ path("transaction" / Segment / Segment / Segment / IntNumber) {
+    case (transactionId, sourceAccountId, destinationAccountId, amount) => {
       post {
         complete {
-          val id = ThreadLocalRandom.current().nextInt(0, Int.MaxValue).toString
-          val coordinator = system.actorOf(Props(new Coordinator(accounts)), id)
-          (coordinator ? MoneyTransaction(id, sourceAccountId, destinationAccountId, amount)).map {
+          val coordinator = system.actorOf(Props(new Coordinator(accounts)), transactionId)
+          (coordinator ? MoneyTransaction(transactionId, sourceAccountId, destinationAccountId, amount)).map {
             case Accepted(_) => Map("completed" -> true)
             case Rejected(_) => Map("completed" -> false)
           }

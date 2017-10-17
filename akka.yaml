@@ -17,11 +17,11 @@ spec:
         - name: HTTP_TIMEOUT
           value: "520"
         - name: ACCOUNT_TIMEOUT
-          value: "250"
+          value: "275"
         - name: VOTING_TIMEOUT
-          value: "300"
+          value: "325"
         - name: COMMIT_TIMEOUT
-          value: "150"   
+          value: "175"
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -52,19 +52,3 @@ spec:
   type: LoadBalancer
   loadBalancerSourceRanges:
     - 0.0.0.0/0
----
-kind: Service
-apiVersion: v1
-metadata:
-  name: twopc-akkamgmt
-spec:
-  selector:
-    app: twopc
-  ports:
-    - protocol: TCP
-      port: 19999
-      targetPort: 19999 
-  type: LoadBalancer
-  loadBalancerSourceRanges:
-    - 0.0.0.0/0
-

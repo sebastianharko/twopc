@@ -14,9 +14,10 @@ class BasicSimulation extends Simulation {
   val population = sys.env.get("POPULATION").map(_.toInt).getOrElse(400)
 
   val feeder : Iterator[Map[String, Any]] = Iterator.continually {
+    val transactionId = java.util.UUID.randomUUID().toString.replace("-", "")
     val from = Random.nextInt(population).toString
     val to = Random.nextInt(population).toString
-    Map("from" -> from, "to" -> to)
+    Map("from" -> from, "to" -> to, "transactionId" -> transactionId)
   }
 
  val host = sys.env.getOrElse("APP_IP_PORT", "localhost:8080")
@@ -29,7 +30,7 @@ class BasicSimulation extends Simulation {
   val httpConf: HttpProtocolBuilder = http
 
   val scn1: ScenarioBuilder = scenario("First Scenario").feed(feeder)
-      .exec(http("transaction").post(session => s"http://$host/$action/${session("from").as[String]}/${session("to").as[String]}/0").check(substring("true")))
+      .exec(http("transaction").post(session => s"http://$host/$action/${session("transactionId").as[String]}/${session("from").as[String]}/${session("to").as[String]}/0").check(substring("true")))
       .exec(http("query-1").get(session => s"http://$host/query/${session("from").as[String]}"))
       .exec(http("query-2").get(session => s"http://$host/query/${session("to").as[String]}")
   )

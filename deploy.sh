@@ -1,8 +1,8 @@
 #!/bin/sh
-sbt clean
-sbt docker:publishLocal
-docker tag 2pc:$VERSION sebastianharko/2pc:$VERSION
-docker push sebastianharko/2pc:$VERSION
+# sbt clean
+# sbt docker:publishLocal
+# docker tag 2pc:$VERSION sebastianharko/2pc:$VERSION
+# docker push sebastianharko/2pc:$VERSION
 sleep 10
 echo "Deleting services and deployments"
 kubectl delete service etcd
