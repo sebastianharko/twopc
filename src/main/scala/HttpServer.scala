@@ -36,21 +36,21 @@ object Main extends App {
   implicit val serialization = jackson.Serialization
   implicit val formats = DefaultFormats
 
-  val HttpTimeout = sys.env.get("HTTP_TIMEOUT").map(_.toLong milliseconds).getOrElse(1500 milliseconds)
-  implicit val timeout = akka.util.Timeout(HttpTimeout)
+  val TransactionHttpTimeout = sys.env.get("HTTP_TIMEOUT").map(_.toLong milliseconds).getOrElse(1500 milliseconds)
+  implicit val transactionTimeout = akka.util.Timeout(TransactionHttpTimeout)
 
 
-  logging.info("HTTP_TIMEOUT is {}",  HttpTimeout._1)
+  logging.info("HTTP_TIMEOUT is {}",  TransactionHttpTimeout._1)
   logging.info("ACCOUNT_TIMEOUT is {}", AccountActor.CommitOrAbortTimeout._1)
   logging.info("VOTING_TIMEOUT is {}", Coordinator.TimeOutForVotingPhase._1)
   logging.info("COMMIT_TIMEOUT is {}", Coordinator.TimeOutForCommitPhase._1)
-
 
 
   val route = path("query" / Segment) {
     accountId => {
       get {
         complete {
+          implicit val timeout = akka.util.Timeout(350 milliseconds)
           (accounts ? GetBalance(accountId)).mapTo[Int].map(r => Map("amount" -> r))
         }
       }
