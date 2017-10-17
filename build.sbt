@@ -16,23 +16,21 @@ cinnamon in test := false
 resolvers += Resolver.bintrayRepo("hseeberger", "maven")
 
 
-libraryDependencies += "com.typesafe.akka" %% "akka-cluster" % "2.5.6"
+libraryDependencies += "com.typesafe.akka" %% "akka-cluster" % "2.5.0"
 
-libraryDependencies += "com.typesafe.akka" %% "akka-persistence" % "2.5.6"
+libraryDependencies += "com.typesafe.akka" %% "akka-persistence" % "2.5.0"
 
-libraryDependencies += "com.typesafe.akka" %% "akka-cluster-sharding" % "2.5.6"
+libraryDependencies += "com.typesafe.akka" %% "akka-cluster-sharding" % "2.5.0"
 
-libraryDependencies += "com.typesafe.akka" %% "akka-testkit" % "2.5.6"
+libraryDependencies += "com.typesafe.akka" %% "akka-testkit" % "2.5.0"
 
-libraryDependencies += "com.typesafe.akka" %% "akka-slf4j" % "2.5.6"
+libraryDependencies += "com.typesafe.akka" %% "akka-slf4j" % "2.5.0"
 
 libraryDependencies += "com.typesafe.akka" %% "akka-http" % "10.0.10"
 
-libraryDependencies += "com.typesafe.akka" %% "akka-http-core" % "2.5.6"
+libraryDependencies += "com.typesafe.akka" %% "akka-actor" % "2.5.0"
 
-libraryDependencies += "com.typesafe.akka" %% "akka-actor" % "2.5.6"
-
-libraryDependencies += "com.typesafe.akka" %% "akka-stream" % "2.5.6"
+libraryDependencies += "com.typesafe.akka" %% "akka-stream" % "2.5.0"
 
 libraryDependencies += "org.scalactic" %% "scalactic" % "3.0.1"
 

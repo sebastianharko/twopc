@@ -1,19 +1,17 @@
 package app
 
 import akka.actor.{ActorRef, ActorSystem, Props}
-import akka.cluster.Cluster
 import akka.event.Logging
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives.{complete, get, path, post, _}
 import akka.pattern.ask
 import akka.stream.ActorMaterializer
+import com.lightbend.cinnamon.akka.CinnamonMetrics
+import com.lightbend.cinnamon.metric._
 import org.json4s.{DefaultFormats, jackson}
 
 import scala.concurrent.duration._
 import scala.language.postfixOps
-
-import com.lightbend.cinnamon.akka.CinnamonMetrics
-import com.lightbend.cinnamon.metric._
 
 class Main
 
