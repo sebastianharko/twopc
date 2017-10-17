@@ -3,6 +3,8 @@ package app
 import akka.actor.{ActorRef, ActorSystem, Props}
 import akka.testkit.{ImplicitSender, TestActors, TestKit}
 import akka.util.Timeout
+import com.lightbend.cinnamon.akka.CinnamonMetrics
+import com.lightbend.cinnamon.metric.Counter
 import org.scalatest.{BeforeAndAfterAll, WordSpecLike}
 
 import scala.concurrent.duration._
@@ -14,6 +16,8 @@ class TestAccountSharding extends TestKit(ActorSystem("minimal")) with WordSpecL
   override def afterAll {
     TestKit.shutdownActorSystem(system)
   }
+
+  val votingTimeoutCounter: Counter = CinnamonMetrics(system).createCounter("coordinatorVotingTimeout")
 
   val accounts: ActorRef = Sharding.accounts(system)
 
@@ -51,6 +55,8 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
   override def afterAll {
     TestKit.shutdownActorSystem(system)
   }
+
+  val votingTimeoutCounter: Counter = CinnamonMetrics(system).createCounter("coordinatorVotingTimeout")
 
   val blackHole: ActorRef = system.actorOf(TestActors.blackholeProps)
   implicit val timeout = Timeout(2 seconds)
@@ -298,6 +304,8 @@ class TestCoordinator extends TestKit(ActorSystem("minimal")) with WordSpecLike
     TestKit.shutdownActorSystem(system)
   }
 
+  val votingTimeoutCounter: Counter = CinnamonMetrics(system).createCounter("coordinatorVotingTimeout")
+
   val blackHole: ActorRef = system.actorOf(TestActors.blackholeProps)
   implicit val timeout = Timeout(2 seconds)
 
@@ -308,7 +316,7 @@ class TestCoordinator extends TestKit(ActorSystem("minimal")) with WordSpecLike
     "be able to reject the transaction if no response from vote requests" in {
 
       val id = java.util.UUID.randomUUID().toString
-      val coordinator = system.actorOf(Props(new Coordinator(blackHole)), id)
+      val coordinator = system.actorOf(Props(new Coordinator(blackHole, votingTimeoutCounter)), id)
       watch(coordinator)
       coordinator ! MoneyTransaction(id, "A", "B", 25)
       expectMsg((1.25 * Coordinator.TimeOutForVotingPhase)._1 milliseconds, Rejected(Some(id)))
@@ -324,7 +332,7 @@ class TestCoordinator extends TestKit(ActorSystem("minimal")) with WordSpecLike
       expectMsg(Accepted())
 
       val id = java.util.UUID.randomUUID().toString
-      val coordinator = system.actorOf(Props(new Coordinator(accounts)), id)
+      val coordinator = system.actorOf(Props(new Coordinator(accounts, votingTimeoutCounter)), id)
       watch(coordinator)
       coordinator ! MoneyTransaction(id, "A", "B", 500)
       expectMsg(Rejected(Some(id)))
@@ -340,7 +348,7 @@ class TestCoordinator extends TestKit(ActorSystem("minimal")) with WordSpecLike
       expectMsg(Accepted())
 
       val id = java.util.UUID.randomUUID().toString
-      val coordinator = system.actorOf(Props(new Coordinator(accounts)), id)
+      val coordinator = system.actorOf(Props(new Coordinator(accounts, votingTimeoutCounter)), id)
       watch(coordinator)
       coordinator ! MoneyTransaction(id, "X", "Y", 50)
       expectMsg(Accepted(Some(id)))

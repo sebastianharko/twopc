@@ -3,6 +3,7 @@ package app
 import akka.actor.{ActorLogging, ActorRef, Timers}
 import akka.persistence.{AtLeastOnceDelivery, PersistentActor, RecoveryCompleted}
 import akka.testkit.TestActors
+import com.lightbend.cinnamon.metric.Counter
 
 import scala.collection.mutable
 import scala.concurrent.duration._
@@ -109,7 +110,7 @@ object Coordinator {
 
 }
 
-class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorLogging with Timers with AtLeastOnceDelivery {
+class Coordinator(shardedAccounts: ActorRef, votingTimeoutCounter: Counter) extends PersistentActor with ActorLogging with Timers with AtLeastOnceDelivery {
 
   import Coordinator._
 

@@ -55,7 +55,10 @@ case class AccountStashOverflow(accountId: String)
 
 object Sharding {
 
-  val NumShards = 60
+
+  val PassivateAfter: Int = sys.env.get("PASSIVATE_ACCOUNT").map(_.toInt).getOrElse(120) // ms
+
+  val NumShards: Int = sys.env.get("NUM_SHARDS").map(_.toInt).getOrElse(100)
 
   val extractEntityId: ExtractEntityId = {
     case c @ ChangeBalance(accountId, _) => (accountId, c)
@@ -68,15 +71,16 @@ object Sharding {
     case c @ Finalize(accountId, _, _) => (accountId, c)
   }
 
+  import Math.abs
   val extractShardId: ExtractShardId = {
-    case ChangeBalance(accountId, _) => (accountId.hashCode % NumShards).toString
-    case GetBalance(accountId) => (accountId.hashCode % NumShards).toString
-    case IsLocked(accountId) => (accountId.hashCode % NumShards).toString
-    case Vote(accountId, _) => (accountId.hashCode % NumShards).toString
-    case Commit(accountId, _) => (accountId.hashCode % NumShards).toString
-    case Abort(accountId, _) => (accountId.hashCode % NumShards).toString
-    case Rollback(accountId, _, _) => (accountId.hashCode % NumShards).toString
-    case Finalize(accountId, _, _) => (accountId.hashCode % NumShards).toString
+    case ChangeBalance(accountId, _) => (abs(accountId.hashCode) % NumShards).toString
+    case GetBalance(accountId) => (abs(accountId.hashCode) % NumShards).toString
+    case IsLocked(accountId) => (abs(accountId.hashCode) % NumShards).toString
+    case Vote(accountId, _) => (abs(accountId.hashCode) % NumShards).toString
+    case Commit(accountId, _) => (abs(accountId.hashCode) % NumShards).toString
+    case Abort(accountId, _) => (abs(accountId.hashCode) % NumShards).toString
+    case Rollback(accountId, _, _) => (abs(accountId.hashCode) % NumShards).toString
+    case Finalize(accountId, _, _) => (abs(accountId.hashCode) % NumShards).toString
   }
 
   def accounts(system: ActorSystem): ActorRef = ClusterSharding(system).start(
@@ -102,7 +106,7 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
 
   import akka.cluster.sharding.ShardRegion.Passivate
 
-  context.setReceiveTimeout(120.seconds)
+  context.setReceiveTimeout(Sharding.PassivateAfter.milliseconds)
 
   override def persistenceId: String = self.path.name
 
@@ -113,7 +117,6 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
   var balance = 0
 
   var activeBalance = balance
-
 
   def validate(e: Any): Boolean = {
     e match {
@@ -324,10 +327,8 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
 
     case RecoveryCompleted =>
       if (uncompletedTransaction == null) {
-        log.info(s"recovery complete, balance is $balance")
         activeBalance = balance
       } else {
-        log.info("recovery complete, transaction outstanding")
         activeBalance = previousBalance
         context.become(waitingForFinalizeOrRollback(uncompletedTransaction))
       }
