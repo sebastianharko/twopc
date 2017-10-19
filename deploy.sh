@@ -14,6 +14,7 @@ kubectl delete deployment cassandra
 kubectl delete deployment etcd
 echo "Deploying etcd and cassandra"
 kubectl create -f etcd.yaml
+kubectl create -f statsd.yaml
 kubectl create -f cassandra.yaml
 sleep 30
 echo "Deploying akka cluster"
