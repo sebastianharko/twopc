@@ -4,7 +4,7 @@ Cassandra
 sudo ifconfig lo0 alias 127.0.0.2 up
 sudo ifconfig lo0 alias 127.0.0.3 up
 ccm create test -v 3.0.8 -n 3 -s
-
+export CASSANDRA_SERVICE_HOST=127.0.0.1
 
 
 Dashboard
