@@ -3,7 +3,8 @@ package app
 import akka.actor.{ActorLogging, ActorRef, Timers}
 import akka.persistence.{AtLeastOnceDelivery, PersistentActor, RecoveryCompleted}
 import akka.testkit.TestActors
-import com.lightbend.cinnamon.metric.Counter
+import com.lightbend.cinnamon.akka.Stopwatch
+import com.lightbend.cinnamon.metric.Rate
 
 import scala.collection.mutable
 import scala.concurrent.duration._
@@ -110,8 +111,8 @@ object Coordinator {
 
 }
 
-class Coordinator(shardedAccounts: ActorRef, votingTimeoutCounter: Counter,
-    commitTimeoutCounter: Counter
+class Coordinator(shardedAccounts: ActorRef, votingTimeoutRate: Rate,
+    commitTimeoutRate: Rate
 ) extends PersistentActor with ActorLogging with Timers with AtLeastOnceDelivery {
 
   import Coordinator._
@@ -125,7 +126,9 @@ class Coordinator(shardedAccounts: ActorRef, votingTimeoutCounter: Counter,
   override def receiveCommand: Receive = {
 
     case transaction: MoneyTransaction =>
-      persistAsync(transaction) { _ => phase = 'Initiated; self ! Check }
+      Stopwatch(context.system).start("sample-persist") {
+        persistAsync(transaction) { _ => Stopwatch(context.system).stop("sample-persist"); phase = 'Initiated; self ! Check }
+      }
       onEvent(transaction)
       this.replyTo = sender()
       self ! StartVotingProcess
@@ -142,7 +145,7 @@ class Coordinator(shardedAccounts: ActorRef, votingTimeoutCounter: Counter,
   def waitingForVoteResults: Receive = {
 
     case TimedOut(_) =>
-      votingTimeoutCounter.increment()
+      votingTimeoutRate.mark()
       replyTo ! Rejected(Some(moneyTransaction.transactionId))
       shardedAccounts ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
@@ -188,7 +191,7 @@ class Coordinator(shardedAccounts: ActorRef, votingTimeoutCounter: Counter,
       }
 
     case TimedOut(_) =>
-      commitTimeoutCounter.increment()
+      commitTimeoutRate.mark()
       self ! StartRollback
       context.become(rollingBack, discardOld = true)
   }

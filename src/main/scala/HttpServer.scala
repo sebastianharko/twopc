@@ -9,6 +9,7 @@ import akka.http.scaladsl.server.Directives.{complete, get, path, post, _}
 import akka.pattern.ask
 import akka.stream.ActorMaterializer
 import com.lightbend.cinnamon.akka.CinnamonMetrics
+import com.lightbend.cinnamon.akka.http.scaladsl.server.Endpoint
 import com.lightbend.cinnamon.metric._
 import org.json4s.{DefaultFormats, jackson}
 
@@ -41,11 +42,13 @@ object Main extends App {
 
   val shardCounter = CinnamonMetrics(system).createGaugeLong("shards")
   val entityCounter = CinnamonMetrics(system).createGaugeLong("entities")
-  val votingTimeoutCounter: Counter = CinnamonMetrics(system).createCounter("coordinatorVotingTimeout")
-  val commitTimeoutCounter: Counter = CinnamonMetrics(system).createCounter("coordinatorCommitTimeout")
-  val accountTimeoutCounter: Counter = CinnamonMetrics(system).createCounter("accountTimeout")
+  val votingTimeouts = CinnamonMetrics(system).createRate("coordinatorVotingTimeout")
+  val commitTimeouts = CinnamonMetrics(system).createRate("coordinatorCommitTimeout")
+  val accountTimeouts = CinnamonMetrics(system).createRate("accountTimeout")
 
-  val accounts = Sharding.accounts(system, accountTimeoutCounter)
+  val activeTransactions = CinnamonMetrics(system).createGaugeLong("transactions")
+
+  val accounts = Sharding.accounts(system, accountTimeouts)
 
   system.actorOf(Props(new ShardInspector(accounts, shardCounter, entityCounter))) ! "Start"
 
@@ -72,13 +75,13 @@ object Main extends App {
   logging.info("VOTING_TIMEOUT is {}", Coordinator.TimeOutForVotingPhase._1)
   logging.info("COMMIT_TIMEOUT is {}", Coordinator.TimeOutForCommitPhase._1)
 
-
-
   val route = path("query" / Segment) {
     accountId => {
       get {
-        complete {
-          accounts.ask(GetBalance(accountId))(queryTimeout, ActorRef.noSender).mapTo[Int].map(r => Map("amount" -> r))
+        Endpoint.withName("CustomerAccount") {
+          complete {
+            accounts.ask(GetBalance(accountId))(queryTimeout, ActorRef.noSender).mapTo[Int].map(r => Map("amount" -> r))
+          }
         }
       }
     }
@@ -106,7 +109,7 @@ object Main extends App {
     case (transactionId, sourceAccountId, destinationAccountId, amount) => {
       post {
         complete {
-          val coordinator = system.actorOf(Props(new Coordinator(accounts, votingTimeoutCounter, commitTimeoutCounter)), transactionId)
+          val coordinator = system.actorOf(Props(new Coordinator(accounts, votingTimeouts, commitTimeouts)), transactionId)
           (coordinator ? MoneyTransaction(transactionId, sourceAccountId, destinationAccountId, amount)).map {
             case Accepted(_) => Map("completed" -> true)
             case Rejected(_) => Map("completed" -> false)

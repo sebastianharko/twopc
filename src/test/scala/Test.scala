@@ -4,7 +4,7 @@ import akka.actor.{ActorRef, ActorSystem, Props}
 import akka.testkit.{ImplicitSender, TestActors, TestKit}
 import akka.util.Timeout
 import com.lightbend.cinnamon.akka.CinnamonMetrics
-import com.lightbend.cinnamon.metric.Counter
+import com.lightbend.cinnamon.metric.{Counter, Rate}
 import org.scalatest.{BeforeAndAfterAll, WordSpecLike}
 
 import scala.concurrent.duration._
@@ -17,9 +17,9 @@ class TestAccountSharding extends TestKit(ActorSystem("minimal")) with WordSpecL
     TestKit.shutdownActorSystem(system)
   }
 
-  val fakeCounter: Counter = CinnamonMetrics(system).createCounter("fakeCounter")
+  val fakeRate: Rate = CinnamonMetrics(system).createRate("fakeRate")
 
-  val accounts: ActorRef = Sharding.accounts(system, fakeCounter)
+  val accounts: ActorRef = Sharding.accounts(system, fakeRate)
 
   "a sharded account" must {
 
@@ -56,7 +56,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
     TestKit.shutdownActorSystem(system)
   }
 
-  val fakeCounter: Counter = CinnamonMetrics(system).createCounter("fakeCounter")
+  val fake: Rate = CinnamonMetrics(system).createRate("fake")
 
   val blackHole: ActorRef = system.actorOf(TestActors.blackholeProps)
   implicit val timeout = Timeout(2 seconds)
@@ -65,7 +65,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
 
     "be able to respond to a query" in {
 
-      val account = system.actorOf(Props(new AccountActor(fakeCounter)), "42")
+      val account = system.actorOf(Props(new AccountActor(fake)), "42")
 
       account ! GetBalance("42")
       expectMsg(0)
@@ -76,7 +76,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
 
     "be able to respond to Deposit, Withdraw and Query messages" in {
 
-      val account = system.actorOf(Props(new AccountActor(fakeCounter)), "42")
+      val account = system.actorOf(Props(new AccountActor(fake)), "42")
       account ! ChangeBalance("42", 50)
       expectMsg(Accepted())
       account ! ChangeBalance("42", 20)
@@ -93,7 +93,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
 
     "recover state via event sourcing" in {
 
-      val accountA = system.actorOf(Props(new AccountActor(fakeCounter)), "56")
+      val accountA = system.actorOf(Props(new AccountActor(fake)), "56")
       accountA ! ChangeBalance("56", 50)
       expectMsg(Accepted())
       accountA ! ChangeBalance("56", 20)
@@ -104,7 +104,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
       system.stop(accountA)
       Thread.sleep(100) // wait for the actor to die
 
-      val accountB = system.actorOf(Props(new AccountActor(fakeCounter)), "56")
+      val accountB = system.actorOf(Props(new AccountActor(fake)), "56")
       accountB ! GetBalance("56")
       expectMsg(60)
       system.stop(accountB)
@@ -113,7 +113,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
 
     "be able to vote no on a transaction request" in {
 
-      val account = system.actorOf(Props(new AccountActor(fakeCounter)), "53")
+      val account = system.actorOf(Props(new AccountActor(fake)), "53")
       account ! ChangeBalance("53", 0)
       expectMsg(Accepted())
       account ! Vote("53", MoneyTransaction("tId", "53", "42", 50))
@@ -124,7 +124,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
 
     "be able to be queried while waiting for a commit message" in {
 
-      val account = system.actorOf(Props(new AccountActor(fakeCounter)), "83")
+      val account = system.actorOf(Props(new AccountActor(fake)), "83")
       account ! ChangeBalance("83", 50)
       expectMsg(Accepted())
 
@@ -143,7 +143,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
 
     "be able to vote yes, receive an abort message, end in a proper state" in {
 
-      val account = system.actorOf(Props(new AccountActor(fakeCounter)), "86")
+      val account = system.actorOf(Props(new AccountActor(fake)), "86")
       account ! ChangeBalance("86", 50)
       expectMsg(Accepted())
 
@@ -170,7 +170,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
 
     "be able to rollback itself after voting yes but not receiving a commit message within a reasonable time" in {
 
-      val account = system.actorOf(Props(new AccountActor(fakeCounter)), "94")
+      val account = system.actorOf(Props(new AccountActor(fake)), "94")
       account ! ChangeBalance("94", 50)
       expectMsg(Accepted())
 
@@ -192,7 +192,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
 
     "be able to do engage in a transaction from start to finish" in {
 
-      val account = system.actorOf(Props(new AccountActor(fakeCounter)), "99")
+      val account = system.actorOf(Props(new AccountActor(fake)), "99")
       account ! ChangeBalance("99", 50)
       expectMsg(Accepted())
 
@@ -228,7 +228,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
 
     "be able to complete a transaction from start to finish, even if it has to restart along the way" in {
 
-      val accountA = system.actorOf(Props(new AccountActor(fakeCounter)), "100")
+      val accountA = system.actorOf(Props(new AccountActor(fake)), "100")
       accountA ! ChangeBalance("100", 50)
       expectMsg(Accepted())
 
@@ -245,7 +245,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
       system.stop(accountA)
       Thread.sleep(100) // wait for actor to die
 
-      val accountB = system.actorOf(Props(new AccountActor(fakeCounter)), "100") // restart
+      val accountB = system.actorOf(Props(new AccountActor(fake)), "100") // restart
 
       accountB ! GetBalance("100")
       expectMsg(50) // still previous balance
@@ -268,7 +268,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
 
     "be able to handle a rollback" in {
 
-      val account = system.actorOf(Props(new AccountActor(fakeCounter)), "X")
+      val account = system.actorOf(Props(new AccountActor(fake)), "X")
       account ! ChangeBalance("X", 10)
       expectMsg(Accepted())
 
@@ -304,19 +304,19 @@ class TestCoordinator extends TestKit(ActorSystem("minimal")) with WordSpecLike
     TestKit.shutdownActorSystem(system)
   }
 
-  val counter: Counter = CinnamonMetrics(system).createCounter("counter")
+  val fake = CinnamonMetrics(system).createRate("fake")
 
   val blackHole: ActorRef = system.actorOf(TestActors.blackholeProps)
   implicit val timeout = Timeout(2 seconds)
 
-  val accounts: ActorRef = Sharding.accounts(system, counter)
+  val accounts: ActorRef = Sharding.accounts(system, fake)
 
   "a coordinator" must {
 
     "be able to reject the transaction if no response from vote requests" in {
 
       val id = java.util.UUID.randomUUID().toString
-      val coordinator = system.actorOf(Props(new Coordinator(blackHole, counter, counter)), id)
+      val coordinator = system.actorOf(Props(new Coordinator(blackHole, fake, fake)), id)
       watch(coordinator)
       coordinator ! MoneyTransaction(id, "A", "B", 25)
       expectMsg((1.25 * Coordinator.TimeOutForVotingPhase)._1 milliseconds, Rejected(Some(id)))
@@ -332,7 +332,7 @@ class TestCoordinator extends TestKit(ActorSystem("minimal")) with WordSpecLike
       expectMsg(Accepted())
 
       val id = java.util.UUID.randomUUID().toString
-      val coordinator = system.actorOf(Props(new Coordinator(accounts, counter, counter)), id)
+      val coordinator = system.actorOf(Props(new Coordinator(accounts, fake, fake)), id)
       watch(coordinator)
       coordinator ! MoneyTransaction(id, "A", "B", 500)
       expectMsg(Rejected(Some(id)))
@@ -348,7 +348,7 @@ class TestCoordinator extends TestKit(ActorSystem("minimal")) with WordSpecLike
       expectMsg(Accepted())
 
       val id = java.util.UUID.randomUUID().toString
-      val coordinator = system.actorOf(Props(new Coordinator(accounts, counter, counter)), id)
+      val coordinator = system.actorOf(Props(new Coordinator(accounts, fake, fake)), id)
       watch(coordinator)
       coordinator ! MoneyTransaction(id, "X", "Y", 50)
       expectMsg(Accepted(Some(id)))
