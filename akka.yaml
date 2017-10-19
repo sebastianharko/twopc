@@ -11,7 +11,7 @@ spec:
     spec:
       containers:
       - name: twopc
-        image: sebastianharko/2pc:3.1
+        image: sebastianharko/2pc:3.2
         imagePullPolicy: Always
         env:
         - name: QUERY_HTTP_TIMEOUT
