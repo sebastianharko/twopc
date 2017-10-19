@@ -15,8 +15,8 @@ class BasicSimulation extends Simulation {
 
   val feeder : Iterator[Map[String, Any]] = Iterator.continually {
     val transactionId = java.util.UUID.randomUUID().toString.replace("-", "")
-    val from = Random.nextInt(population).toString
-    val to = Random.nextInt(population).toString
+    val from = java.util.UUID.randomUUID().toString.replace("-", "")
+    val to = java.util.UUID.randomUUID().toString.replace("-", "")
     Map("from" -> from, "to" -> to, "transactionId" -> transactionId)
   }
 
