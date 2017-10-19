@@ -110,7 +110,9 @@ object Coordinator {
 
 }
 
-class Coordinator(shardedAccounts: ActorRef, votingTimeoutCounter: Counter) extends PersistentActor with ActorLogging with Timers with AtLeastOnceDelivery {
+class Coordinator(shardedAccounts: ActorRef, votingTimeoutCounter: Counter,
+    commitTimeoutCounter: Counter
+) extends PersistentActor with ActorLogging with Timers with AtLeastOnceDelivery {
 
   import Coordinator._
 
@@ -186,6 +188,7 @@ class Coordinator(shardedAccounts: ActorRef, votingTimeoutCounter: Counter) exte
       }
 
     case TimedOut(_) =>
+      commitTimeoutCounter.increment()
       self ! StartRollback
       context.become(rollingBack, discardOld = true)
   }

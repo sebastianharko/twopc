@@ -4,6 +4,7 @@ import akka.actor.{ActorLogging, ActorRef, ActorSystem, Props, ReceiveTimeout, S
 import akka.cluster.sharding.ShardRegion.{ExtractEntityId, ExtractShardId}
 import akka.cluster.sharding.{ClusterSharding, ClusterShardingSettings}
 import akka.persistence.{PersistentActor, RecoveryCompleted, ReplyToStrategy, StashOverflowStrategy}
+import com.lightbend.cinnamon.metric.Counter
 
 
 
@@ -83,9 +84,9 @@ object Sharding {
     case Finalize(accountId, _, _) => (abs(accountId.hashCode) % NumShards).toString
   }
 
-  def accounts(system: ActorSystem): ActorRef = ClusterSharding(system).start(
+  def accounts(system: ActorSystem, counter: Counter): ActorRef = ClusterSharding(system).start(
     typeName = "Account",
-    entityProps = Props(new AccountActor()).withMailbox("stash-capacity-mailbox"),
+    entityProps = Props(new AccountActor(counter)).withMailbox("stash-capacity-mailbox"),
     settings = ClusterShardingSettings(system),
     extractEntityId = extractEntityId,
     extractShardId = extractShardId)
@@ -100,7 +101,7 @@ object AccountActor {
 
 case object Stop
 
-class AccountActor extends PersistentActor with ActorLogging with Timers with Stash {
+class AccountActor(timeoutCounter: Counter) extends PersistentActor with ActorLogging with Timers with Stash {
 
   override def internalStashOverflowStrategy: StashOverflowStrategy = ReplyToStrategy(AccountStashOverflow(accountId))
 
@@ -251,6 +252,7 @@ class AccountActor extends PersistentActor with ActorLogging with Timers with St
               context.become(receiveCommand, discardOld = true)
 
             case TimedOut(_) =>
+              timeoutCounter.increment()
               coordinator = null
               unstashAll()
               context.become(receiveCommand, discardOld = true)
