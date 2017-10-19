@@ -15,7 +15,6 @@ cinnamon in test := false
 // final ones are also published to Maven Central.
 resolvers += Resolver.bintrayRepo("hseeberger", "maven")
 
-
 libraryDependencies += "com.typesafe.akka" %% "akka-cluster" % "2.5.0"
 
 libraryDependencies += "com.typesafe.akka" %% "akka-persistence" % "2.5.0"

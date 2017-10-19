@@ -1,6 +1,8 @@
 package app
 
 import akka.actor.{ActorRef, ActorSystem, Props}
+import akka.cluster.Cluster
+import akka.cluster.http.management.ClusterHttpManagement
 import akka.event.Logging
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives.{complete, get, path, post, _}
@@ -46,6 +48,8 @@ object Main extends App {
   logging.info("COMMIT_TIMEOUT is {}", Coordinator.TimeOutForCommitPhase._1)
 
   val votingTimeoutCounter: Counter = CinnamonMetrics(system).createCounter("coordinatorVotingTimeout")
+  val commitTimeoutCounter: Counter = CinnamonMetrics(system).createCounter("coordinatorCommitTimeout")
+  val accountTimeoutCounter: Counter = CinnamonMetrics(system).createCounter("accountTimeout")
 
   val route = path("query" / Segment) {
     accountId => {
