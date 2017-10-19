@@ -140,6 +140,7 @@ class Coordinator(shardedAccounts: ActorRef, votingTimeoutCounter: Counter) exte
   def waitingForVoteResults: Receive = {
 
     case TimedOut(_) =>
+      votingTimeoutCounter.increment()
       replyTo ! Rejected(Some(moneyTransaction.transactionId))
       shardedAccounts ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
