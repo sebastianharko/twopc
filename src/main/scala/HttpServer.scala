@@ -1,6 +1,8 @@
 package app
 
-import akka.actor.{ActorRef, ActorSystem, Props}
+import akka.actor.{Actor, ActorRef, ActorSystem, Props, Timers}
+import akka.cluster.sharding.ShardRegion
+import akka.cluster.sharding.ShardRegion.CurrentShardRegionState
 import akka.event.Logging
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives.{complete, get, path, post, _}
@@ -13,6 +15,22 @@ import org.json4s.{DefaultFormats, jackson}
 import scala.concurrent.duration._
 import scala.language.postfixOps
 
+
+class ShardInspector(region: ActorRef, shardCounter: GaugeLong, entityCounter: GaugeLong) extends Actor with Timers {
+
+  def receive = {
+    case "Start" =>
+      timers.startPeriodicTimer("ShardInspector", "Inspect", 1500 milliseconds)
+    case "Inspect" =>
+      region ! ShardRegion.GetShardRegionState
+    case s: CurrentShardRegionState =>
+      shardCounter.set(s.shards.size)
+      val numEntities: Int = s.shards.map(_.entityIds.size).sum
+      entityCounter.set(numEntities)
+  }
+
+}
+
 class Main
 
 object Main extends App {
@@ -21,11 +39,15 @@ object Main extends App {
 
   val logging = Logging(system, classOf[Main])
 
+  val shardCounter = CinnamonMetrics(system).createGaugeLong("shards")
+  val entityCounter = CinnamonMetrics(system).createGaugeLong("entities")
   val votingTimeoutCounter: Counter = CinnamonMetrics(system).createCounter("coordinatorVotingTimeout")
   val commitTimeoutCounter: Counter = CinnamonMetrics(system).createCounter("coordinatorCommitTimeout")
   val accountTimeoutCounter: Counter = CinnamonMetrics(system).createCounter("accountTimeout")
 
   val accounts = Sharding.accounts(system, accountTimeoutCounter)
+
+  system.actorOf(Props(new ShardInspector(accounts, shardCounter, entityCounter))) ! "Start"
 
   implicit val materializer = ActorMaterializer()
   // needed for the future flatMap/onComplete in the end
@@ -49,6 +71,8 @@ object Main extends App {
   logging.info("ACCOUNT_TIMEOUT is {}", AccountActor.CommitOrAbortTimeout._1)
   logging.info("VOTING_TIMEOUT is {}", Coordinator.TimeOutForVotingPhase._1)
   logging.info("COMMIT_TIMEOUT is {}", Coordinator.TimeOutForCommitPhase._1)
+
+
 
   val route = path("query" / Segment) {
     accountId => {

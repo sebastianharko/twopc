@@ -57,7 +57,7 @@ case class AccountStashOverflow(accountId: String)
 object Sharding {
 
 
-  val PassivateAfter: Int = sys.env.get("PASSIVATE_ACCOUNT").map(_.toInt).getOrElse(120) // ms
+  val PassivateAfter: Int = sys.env.get("PASSIVATE_ACCOUNT").map(_.toInt).getOrElse(5 * 60) // ms
 
   val NumShards: Int = sys.env.get("NUM_SHARDS").map(_.toInt).getOrElse(100)
 
@@ -107,7 +107,7 @@ class AccountActor(timeoutCounter: Counter) extends PersistentActor with ActorLo
 
   import akka.cluster.sharding.ShardRegion.Passivate
 
-  context.setReceiveTimeout(Sharding.PassivateAfter.milliseconds)
+  context.setReceiveTimeout(Sharding.PassivateAfter.seconds)
 
   override def persistenceId: String = self.path.name
 
