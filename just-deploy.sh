@@ -17,5 +17,5 @@ echo 5 / 5
 echo "Deploying akka cluster"
 kubectl create -f akka.yaml
 sleep 100
-kubectl scale --replicas=8 deployments/twopc
+kubectl scale --replicas=10 deployments/twopc
 kubectl create -f akka-service.yaml
