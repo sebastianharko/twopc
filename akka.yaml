@@ -11,7 +11,7 @@ spec:
     spec:
       containers:
       - name: twopc
-        image: sebastianharko/2pc:3.2
+        image: sebastianharko/2pc:3.3
         imagePullPolicy: Always
         env:
         - name: QUERY_HTTP_TIMEOUT
@@ -34,9 +34,9 @@ spec:
         - containerPort: 2551
         resources:
           requests:
-            cpu: 2
+            cpu: 1
             memory: 6Gi 
           limits:
-            cpu: 2
+            cpu: 1
             memory: 6Gi
 
