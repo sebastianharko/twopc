@@ -1,0 +1,15 @@
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: twopc
+spec:
+  selector:
+    app: twopc
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+  type: LoadBalancer
+  loadBalancerSourceRanges:
+    - 0.0.0.0/0
