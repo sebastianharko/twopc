@@ -11,3 +11,6 @@ kubectl delete deployment etcd
 kubectl delete deployment ggs
 kubectl delete StorageClass fast
 kubectl delete StatefulSet cassandra
+kubectl delete PersistentVolumeClaim cassandra-data-cassandra-0
+kubectl delete PersistentVolumeClaim cassandra-data-cassandra-1
+kubectl delete PersistentVolumeClaim cassandra-data-cassandra-2

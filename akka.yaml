@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: twopc
 spec:
-  replicas: 4
+  replicas: 10
   template:
     metadata:
       labels:
@@ -14,14 +14,16 @@ spec:
         image: sebastianharko/2pc:3.0
         imagePullPolicy: Always
         env:
+        - name: QUERY_HTTP_TIMEOUT
+          value: "800"
         - name: HTTP_TIMEOUT
-          value: "1200"
+          value: "1500"
         - name: ACCOUNT_TIMEOUT
-          value: "600"
+          value: "1000"
         - name: VOTING_TIMEOUT
-          value: "600"
+          value: "1000"
         - name: COMMIT_TIMEOUT
-          value: "300"
+          value: "500"
         - name: POD_IP
           valueFrom:
             fieldRef:
