@@ -7,16 +7,15 @@ import io.gatling.http.protocol.HttpProtocolBuilder
 
 import scala.concurrent.duration._
 import scala.language.postfixOps
-import scala.util.Random
 
 class BasicSimulation extends Simulation {
 
   val population = sys.env.get("POPULATION").map(_.toInt).getOrElse(Int.MaxValue)
 
   val feeder : Iterator[Map[String, Any]] = Iterator.continually {
-    val transactionId = java.util.UUID.randomUUID().toString.replace("-", "")
-    val from = java.util.UUID.randomUUID().toString.replace("-", "")
-    val to = java.util.UUID.randomUUID().toString.replace("-", "")
+    val transactionId = java.util.UUID.randomUUID().toString.replace("-", "").substring(0, 15)
+    val from = java.util.UUID.randomUUID().toString.replace("-", "").substring(0, 15)
+    val to = java.util.UUID.randomUUID().toString.replace("-", "").substring(0, 15)
     Map("from" -> from, "to" -> to, "transactionId" -> transactionId)
   }
 
