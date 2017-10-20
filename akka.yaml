@@ -11,7 +11,7 @@ spec:
     spec:
       containers:
       - name: twopc
-        image: sebastianharko/2pc:4.3
+        image: sebastianharko/2pc:4.4
         imagePullPolicy: Always
         env:
         - name: NUM_SHARDS

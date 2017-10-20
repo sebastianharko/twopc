@@ -1,6 +1,6 @@
 name := "2pc"
 
-version := "4.3"
+version := "4.4"
 
 scalaVersion := "2.12.3"
 
@@ -38,8 +38,6 @@ libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.1" % "test"
 libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3"
 
 libraryDependencies += "com.typesafe.akka" %% "akka-persistence-cassandra" % "0.58"
-
-libraryDependencies += "de.heikoseeberger" %% "akka-http-json4s" % "1.19.0-M2"
 
 libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.5.3"
 

@@ -11,7 +11,6 @@ import akka.stream.ActorMaterializer
 import com.lightbend.cinnamon.akka.CinnamonMetrics
 import com.lightbend.cinnamon.akka.http.scaladsl.server.Endpoint
 import com.lightbend.cinnamon.metric._
-import org.json4s.{DefaultFormats, jackson}
 
 import scala.concurrent.duration._
 import scala.language.postfixOps
@@ -21,7 +20,7 @@ class ShardInspector(region: ActorRef, shardCounter: GaugeLong, entityCounter: G
 
   def receive = {
     case "Start" =>
-      timers.startPeriodicTimer("ShardInspector", "Inspect", 1500 milliseconds)
+      timers.startPeriodicTimer("ShardInspector", "Inspect", 5 seconds)
     case "Inspect" =>
       region ! ShardRegion.GetShardRegionState
     case s: CurrentShardRegionState =>
@@ -56,11 +55,6 @@ object Main extends App {
   // needed for the future flatMap/onComplete in the end
   implicit val executionContext = system.dispatcher
 
-  import de.heikoseeberger.akkahttpjson4s.Json4sSupport._
-
-  implicit val serialization = jackson.Serialization
-  implicit val formats = DefaultFormats
-
   val StandardTimeout = sys.env.get("HTTP_TIMEOUT").map(_.toLong milliseconds).getOrElse(1500 milliseconds)
   implicit val standardTimeout = akka.util.Timeout(StandardTimeout)
 
@@ -80,7 +74,7 @@ object Main extends App {
       get {
         Endpoint.withName("CustomerAccount") {
           complete {
-            accounts.ask(GetBalance(accountId))(queryTimeout, ActorRef.noSender).mapTo[Int].map(r => Map("amount" -> r))
+            accounts.ask(GetBalance(accountId))(queryTimeout, ActorRef.noSender).mapTo[Int].map((r: Int) => r.toString)
           }
         }
       }
@@ -90,9 +84,9 @@ object Main extends App {
         post {
           complete {
             (accounts ? ChangeBalance(accountId, amount)).map {
-              case Accepted(_) => Map("completed" -> true)
-              case Rejected(_) => Map("completed" -> false)
-              case AccountStashOverflow(_) => Map("completed" -> false)
+              case Accepted(_) => "true"
+              case Rejected(_) => "false"
+              case AccountStashOverflow(_) => "false"
             }
           }
           }
@@ -101,8 +95,8 @@ object Main extends App {
        post {
          complete {
            (accounts ? ChangeBalance(accountId, - amount)).map {
-             case Accepted(_) => Map("completed" -> true)
-             case Rejected(_) => Map("completed" -> false)
+             case Accepted(_) => "true"
+             case Rejected(_) => "false"
            } }
          }
   } ~ path("transaction" / Segment / Segment / Segment / IntNumber) {
@@ -111,8 +105,8 @@ object Main extends App {
         complete {
           val coordinator = system.actorOf(Props(new Coordinator(accounts, votingTimeouts, commitTimeouts)), transactionId)
           (coordinator ? MoneyTransaction(transactionId, sourceAccountId, destinationAccountId, amount)).map {
-            case Accepted(_) => Map("completed" -> true)
-            case Rejected(_) => Map("completed" -> false)
+            case Accepted(_) => "true"
+            case Rejected(_) => "false"
           }
 
         }

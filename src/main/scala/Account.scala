@@ -58,7 +58,7 @@ case class AccountStashOverflow(accountId: String)
 object Sharding {
 
 
-  val PassivateAfter: Int = sys.env.get("PASSIVATE_ACCOUNT").map(_.toInt).getOrElse(5 * 60) // ms
+  val PassivateAfter: Int = sys.env.get("PASSIVATE_ACCOUNT").map(_.toInt).getOrElse(3 * 60) // ms
 
   val NumShards: Int = sys.env.get("NUM_SHARDS").map(_.toInt).getOrElse(100)
 
