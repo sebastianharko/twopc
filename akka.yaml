@@ -11,9 +11,11 @@ spec:
     spec:
       containers:
       - name: twopc
-        image: sebastianharko/2pc:4.2
+        image: sebastianharko/2pc:4.3
         imagePullPolicy: Always
         env:
+        - name: NUM_SHARDS
+          value: "20"
         - name: QUERY_HTTP_TIMEOUT
           value: "550"
         - name: HTTP_TIMEOUT
@@ -34,7 +36,7 @@ spec:
         - containerPort: 2551
         resources:
           requests:
-            cpu: 4
+            cpu: 4 
             memory: 15Gi 
           limits:
             cpu: 4
