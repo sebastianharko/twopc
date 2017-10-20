@@ -2,9 +2,7 @@ package app
 
 import akka.actor.{ActorLogging, ActorRef, Timers}
 import akka.persistence.{AtLeastOnceDelivery, PersistentActor, RecoveryCompleted}
-import akka.testkit.TestActors
-import com.lightbend.cinnamon.akka.Stopwatch
-import com.lightbend.cinnamon.metric.Rate
+import app.messages._
 
 import scala.collection.mutable
 import scala.concurrent.duration._
@@ -32,65 +30,7 @@ import scala.language.postfixOps
 
 */
 
-case class StartTimer(id: String, at: Long)
-
-case class StopTimer(id: String, at: Long, failed: Boolean = false)
-
-
-case class MoneyTransaction(transactionId: String,
-    sourceAccountId: String,
-    destinationAccountId: String,
-    amount: Int) {
-
-  require(sourceAccountId != destinationAccountId)
-  require(amount >= 0)
-
-}
-
-case class Vote(accountId: String,
-    moneyTransaction: MoneyTransaction)
-
-case class Yes(fromAccountId: String)
-
-case class No(fromAccountId: String)
-
-case class Commit(accountId: String,
-    transactionId: String)
-
-case class AckCommit(accountId: String,
-    transactionId: String)
-
-case class Rollback(accountId: String,
-    transaction: MoneyTransaction,
-    deliveryId: Long)
-
-case class AckRollback(accountId: String,
-    tId: String,
-    deliveryId: Long)
-
-case class Finalize(accountId: String,
-    transaction: MoneyTransaction,
-    deliveryId: Long)
-
-case class AckFinalize(accountId: String,
-    tId: String,
-    deliveryId: Long)
-
-case class Accepted(transactionId: Option[String] = None)
-
-case class Rejected(transactionId: Option[String] = None)
-
-case class TimedOut(transactionId: String)
-
-case class Abort(accountId: String, transactionId: String)
-
-case class Finalizing(transactionId: String,
-    sourceAccountId: String,
-    destinationAccountId: String)
-
-case class Rollingback(transactionId: String,
-    sourceAccountId: String,
-    destinationAccountId: String)
+case object TimedOut
 
 case object Check
 
@@ -100,6 +40,19 @@ case object StartRollback
 
 case object StartVotingProcess
 
+object Phases {
+  val Initiated = "Initiated"
+  val Finalizing = "Finalizing"
+  val Rollingback = "Rollingback"
+}
+
+object CTimers {
+
+  val WaitingForVotes = "WaitingForVotes"
+
+  val WaitingForCommitment = "WaitingForCommitment"
+
+}
 
 object Coordinator {
 
@@ -111,32 +64,30 @@ object Coordinator {
 
 }
 
-class Coordinator(shardedAccounts: ActorRef, votingTimeoutRate: Rate,
-    commitTimeoutRate: Rate
-) extends PersistentActor with ActorLogging with Timers with AtLeastOnceDelivery {
+class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorLogging with Timers with AtLeastOnceDelivery {
 
   import Coordinator._
 
-  var phase: Any = _
-
+  var phase: String = _
   var moneyTransaction: MoneyTransaction = _
-  var replyTo: ActorRef = context.actorOf(TestActors.blackholeProps)
-
+  var replyTo: ActorRef = _
 
   override def receiveCommand: Receive = {
 
     case transaction: MoneyTransaction =>
-      Stopwatch(context.system).start("sample-persist") {
-        persistAsync(transaction) { _ => Stopwatch(context.system).stop("sample-persist"); phase = 'Initiated; self ! Check }
-      }
+      persistAsync(transaction) { _ =>
+          phase = Phases.Initiated
+          self ! Check
+        }
       onEvent(transaction)
       this.replyTo = sender()
       self ! StartVotingProcess
 
     case StartVotingProcess =>
-      shardedAccounts ! Vote(moneyTransaction.sourceAccountId, moneyTransaction)
-      shardedAccounts ! Vote(moneyTransaction.destinationAccountId, moneyTransaction)
-      timers.startSingleTimer('WaitingForVotes, TimedOut(moneyTransaction.transactionId), TimeOutForVotingPhase)
+      val mt = moneyTransaction
+      shardedAccounts ! Vote(mt.destinationAccountId, mt.transactionId, mt.sourceAccountId, mt.destinationAccountId, mt.amount)
+      shardedAccounts ! Vote(mt.sourceAccountId, mt.transactionId, mt.sourceAccountId, mt.destinationAccountId, mt.amount)
+      timers.startSingleTimer(CTimers.WaitingForVotes, TimedOut, TimeOutForVotingPhase)
       context.become(waitingForVoteResults, discardOld = true)
   }
 
@@ -144,33 +95,31 @@ class Coordinator(shardedAccounts: ActorRef, votingTimeoutRate: Rate,
 
   def waitingForVoteResults: Receive = {
 
-    case TimedOut(_) =>
-      votingTimeoutRate.mark()
-      replyTo ! Rejected(Some(moneyTransaction.transactionId))
+    case TimedOut =>
+      replyTo ! Rejected(moneyTransaction.transactionId)
       shardedAccounts ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
-      timers.cancelAll()
       context.stop(self)
 
     case AccountStashOverflow(someAccountId) =>
       self ! No(someAccountId)
 
     case No(_) =>
-      replyTo ! Rejected(Some(moneyTransaction.transactionId))
+      replyTo ! Rejected(moneyTransaction.transactionId)
       shardedAccounts ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
-      timers.cancelAll()
+      timers.cancel(CTimers.WaitingForVotes)
       context.stop(self)
 
     case Yes(accId) =>
       yesVotes += accId
       self ! Check
 
-    case Check if yesVotes.size == 2 && phase == 'Initiated =>
+    case Check if yesVotes.size == 2 && phase == Phases.Initiated =>
       shardedAccounts ! Commit(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
       shardedAccounts ! Commit(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
-      timers.cancelAll()
-      timers.startSingleTimer('WaitingForCommitAcks, TimedOut(moneyTransaction.transactionId), TimeOutForCommitPhase)
+      timers.cancel(CTimers.WaitingForVotes)
+      timers.startSingleTimer(CTimers.WaitingForCommitment, TimedOut, TimeOutForCommitPhase)
       context.become(commitPhase, discardOld = true)
 
   }
@@ -179,19 +128,18 @@ class Coordinator(shardedAccounts: ActorRef, votingTimeoutRate: Rate,
 
   def commitPhase: Receive = {
 
-    case AckCommit(accountId, _) =>
+    case AckCommit(accountId) =>
       commitAcknowledgementsReceived += accountId
       self ! Check
 
     case Check =>
       if (commitAcknowledgementsReceived.size == 2) {
-        timers.cancelAll()
+        timers.cancel(CTimers.WaitingForCommitment)
         self ! StartFinalize
         context.become(finalizing, discardOld = true)
       }
 
-    case TimedOut(_) =>
-      commitTimeoutRate.mark()
+    case TimedOut =>
       self ! StartRollback
       context.become(rollingBack, discardOld = true)
   }
@@ -202,11 +150,11 @@ class Coordinator(shardedAccounts: ActorRef, votingTimeoutRate: Rate,
   def finalizing: Receive = {
 
     case StartFinalize =>
-      persistAsync(Finalizing(moneyTransaction.transactionId, moneyTransaction.sourceAccountId, moneyTransaction.destinationAccountId)) {
+      persistAsync(Finalizing()) {
         e => onEvent(e)
       }
 
-    case ackFinalize@AckFinalize(_, _, _) =>
+    case ackFinalize @ AckFinalize(_,  _) =>
       persistAsync(ackFinalize) { e =>
         onEvent(e)
         self ! Check
@@ -214,7 +162,7 @@ class Coordinator(shardedAccounts: ActorRef, votingTimeoutRate: Rate,
 
     case Check =>
       if (ackFinalized.size == 2) {
-        replyTo ! Accepted(Some(moneyTransaction.transactionId))
+        replyTo ! Accepted(moneyTransaction.transactionId)
         context.stop(self)
       }
   }
@@ -224,11 +172,11 @@ class Coordinator(shardedAccounts: ActorRef, votingTimeoutRate: Rate,
   def rollingBack: Receive = {
 
     case StartRollback =>
-      deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.sourceAccountId, moneyTransaction, id))
-      deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.destinationAccountId, moneyTransaction, id))
-      persistAsync(Rollingback(moneyTransaction.transactionId, moneyTransaction.sourceAccountId, moneyTransaction.destinationAccountId))(_ => ())
+      deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.sourceAccountId, moneyTransaction.transactionId, id))
+      deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.destinationAccountId, moneyTransaction.transactionId, id))
+      persistAsync(Rollingback())(_ => ())
 
-    case ackRollback@AckRollback(_, _, _) =>
+    case ackRollback@AckRollback(_, _) =>
       persistAsync(ackRollback) { e =>
         onEvent(e)
         self ! Check
@@ -236,7 +184,7 @@ class Coordinator(shardedAccounts: ActorRef, votingTimeoutRate: Rate,
 
     case Check =>
       if (ackRollBacked.size == 2) {
-        replyTo ! Rejected(Some(moneyTransaction.transactionId))
+        replyTo ! Rejected(moneyTransaction.transactionId)
         context.stop(self)
       }
   }
@@ -246,23 +194,23 @@ class Coordinator(shardedAccounts: ActorRef, votingTimeoutRate: Rate,
     case transaction: MoneyTransaction =>
       this.moneyTransaction = transaction
 
-    case Finalizing(_, _, _) =>
-      phase = 'Finalizing
-      deliver(shardedAccounts.path)((id: Long) => Finalize(moneyTransaction.sourceAccountId, moneyTransaction, id))
-      deliver(shardedAccounts.path)((id: Long) => Finalize(moneyTransaction.destinationAccountId, moneyTransaction, id))
+    case f: Finalizing =>
+      phase = Phases.Finalizing
+      deliver(shardedAccounts.path)((id: Long) => Finalize(moneyTransaction.sourceAccountId, moneyTransaction.transactionId, id))
+      deliver(shardedAccounts.path)((id: Long) => Finalize(moneyTransaction.destinationAccountId, moneyTransaction.transactionId, id))
 
-    case AckFinalize(accountId, _, deliveryId) =>
+    case AckFinalize(accountId, deliveryId) =>
       confirmDelivery(deliveryId)
       ackFinalized += accountId
 
-    case AckRollback(accountId, _, deliveryId) =>
+    case AckRollback(accountId, deliveryId) =>
       confirmDelivery(deliveryId)
       ackRollBacked += accountId
 
-    case Rollingback(_, _, _) =>
-      phase = 'Rollingback
-      deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.sourceAccountId, moneyTransaction, id))
-      deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.destinationAccountId, moneyTransaction, id))
+    case r: Rollingback =>
+      phase = Phases.Rollingback
+      deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.sourceAccountId, moneyTransaction.transactionId, id))
+      deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.destinationAccountId, moneyTransaction.transactionId, id))
 
   }
 
@@ -276,17 +224,17 @@ class Coordinator(shardedAccounts: ActorRef, votingTimeoutRate: Rate,
 
     case RecoveryCompleted =>
 
-      if (phase == 'Finalizing) {
+      if (phase == Phases.Finalizing) {
         self ! Check
         context.become(finalizing)
       }
 
-      if (phase == 'Rollingback) {
+      if (phase == Phases.Rollingback) {
         self ! Check
         context.become(rollingBack)
       }
 
-      if (phase == 'Initiated) {
+      if (phase == Phases.Initiated) {
         self ! StartRollback
         context.become(rollingBack)
       }

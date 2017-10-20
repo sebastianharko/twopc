@@ -21,7 +21,7 @@ libraryDependencies += "com.typesafe.akka" %% "akka-persistence" % "2.5.0"
 
 libraryDependencies += "com.typesafe.akka" %% "akka-cluster-sharding" % "2.5.0"
 
-libraryDependencies += "com.typesafe.akka" %% "akka-testkit" % "2.5.0"
+libraryDependencies += "com.typesafe.akka" %% "akka-testkit" % "2.5.0" % "test"
 
 libraryDependencies += "com.typesafe.akka" %% "akka-slf4j" % "2.5.0"
 
@@ -38,8 +38,6 @@ libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.1" % "test"
 libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3"
 
 libraryDependencies += "com.typesafe.akka" %% "akka-persistence-cassandra" % "0.58"
-
-libraryDependencies += "org.json4s" %% "json4s-jackson" % "3.5.3"
 
 // Use Coda Hale Metrics
 libraryDependencies += Cinnamon.library.cinnamonCHMetricsStatsDReporter
@@ -76,7 +74,13 @@ dockerEntrypoint ++= Seq(
   "-XX:+AggressiveOpts"
 )
 
+PB.targets in Compile := Seq(
+  scalapb.gen() -> (sourceManaged in Compile).value
+)
 
+// (optional) If you need scalapb/scalapb.proto or anything from
+// google/protobuf/*.proto
+libraryDependencies += "com.trueaccord.scalapb" %% "scalapb-runtime" % com.trueaccord.scalapb.compiler.Version.scalapbVersion % "protobuf"
 
 
 

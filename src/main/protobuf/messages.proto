@@ -1,0 +1,99 @@
+syntax = "proto3";
+package app;
+
+message Yes {
+    string fromAccountId = 1;
+}
+
+message No {
+    string fromAccountId = 1;
+}
+
+message ChangeBalance {
+    string accountId = 1;
+    int32 byAmount = 2;
+}
+
+message BalanceChanged {
+    int32 amount = 1;
+}
+
+message IsLocked {
+    string accountId = 1;
+}
+
+message GetBalance {
+    string accountId = 1;
+}
+
+message MoneyTransaction {
+    string transactionId = 1;
+    string sourceAccountId = 2;
+    string destinationAccountId = 3;
+    int32 amount = 4;
+}
+
+message AckRollback {
+    string accountId = 1;
+    int64 deliveryId = 2;
+}
+
+message AckCommit {
+    string accountId = 1;
+}
+
+message AckFinalize {
+    string accountId = 1;
+    int64 deliveryId = 2;
+}
+
+message Commit {
+    string accountId = 1;
+    string transactionId = 2;
+}
+
+message Rollback {
+    string accountId = 1;
+    string transactionId = 2;
+    int64 deliveryId = 3;
+}
+
+message Finalize {
+    string accountId = 1;
+    string transactionId = 2;
+    int64 deliveryId = 3;
+}
+
+message Accepted {
+    string transactionId = 1;
+}
+
+message Rejected {
+    string transactionId = 1;
+}
+
+message Vote {
+    string accountId = 1;
+    string transactionId = 2;
+    string sourceAccountId = 3;
+    string destinationAccountId = 4;
+    int32 amount = 5;
+}
+
+message Abort {
+    string accountId = 1;
+    string transactionId = 2;
+}
+
+message Finalizing {
+}
+
+message Rollingback {
+}
+
+message AccountStashOverflow {
+    string accountId = 1;
+}
+
+
+

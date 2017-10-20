@@ -1,12 +1,11 @@
 package app
 
 import akka.actor.{ActorLogging, ActorRef, ActorSystem, Props, ReceiveTimeout, Stash, Timers}
-import akka.cluster.sharding.ShardRegion.{ExtractEntityId, ExtractShardId}
+import akka.cluster.sharding.ShardRegion.{ExtractEntityId, ExtractShardId, Passivate}
 import akka.cluster.sharding.{ClusterSharding, ClusterShardingSettings}
 import akka.persistence.{PersistentActor, RecoveryCompleted, ReplyToStrategy, StashOverflowStrategy}
+import app.messages._
 import com.lightbend.cinnamon.metric.{Counter, Rate}
-
-
 
 
 /*
@@ -40,23 +39,9 @@ import com.lightbend.cinnamon.metric.{Counter, Rate}
 
  */
 
-
-
-
 import scala.concurrent.duration._
 
-case class ChangeBalance(accountId: String, byAmount: Int)
-
-case class BalanceChanged(amount: Int)
-
-case class GetBalance(accountId: String)
-
-case class IsLocked(accountId: String)
-
-case class AccountStashOverflow(accountId: String)
-
 object Sharding {
-
 
   val PassivateAfter: Int = sys.env.get("PASSIVATE_ACCOUNT").map(_.toInt).getOrElse(3 * 60) // ms
 
@@ -66,7 +51,7 @@ object Sharding {
     case c @ ChangeBalance(accountId, _) => (accountId, c)
     case c @ GetBalance(accountId) => (accountId, c)
     case c @ IsLocked(accountId) => (accountId, c)
-    case c @ Vote(accountId, _) => (accountId, c)
+    case c @ Vote(accountId, _, _, _, _) => (accountId, c)
     case c @ Commit(accountId, _) => (accountId, c)
     case c @ Abort(accountId, _) => (accountId, c)
     case c @ Rollback(accountId, _, _) => (accountId, c)
@@ -78,7 +63,7 @@ object Sharding {
     case ChangeBalance(accountId, _) => (abs(accountId.hashCode) % NumShards).toString
     case GetBalance(accountId) => (abs(accountId.hashCode) % NumShards).toString
     case IsLocked(accountId) => (abs(accountId.hashCode) % NumShards).toString
-    case Vote(accountId, _) => (abs(accountId.hashCode) % NumShards).toString
+    case Vote(accountId, _, _, _, _) => (abs(accountId.hashCode) % NumShards).toString
     case Commit(accountId, _) => (abs(accountId.hashCode) % NumShards).toString
     case Abort(accountId, _) => (abs(accountId.hashCode) % NumShards).toString
     case Rollback(accountId, _, _) => (abs(accountId.hashCode) % NumShards).toString
@@ -87,7 +72,7 @@ object Sharding {
 
   def accounts(system: ActorSystem, rate: Rate, stashHitCounter: Counter): ActorRef = ClusterSharding(system).start(
     typeName = "Account",
-    entityProps = Props(new AccountActor(rate, stashHitCounter)).withMailbox("stash-capacity-mailbox"),
+    entityProps = Props(new AccountActor()).withMailbox("stash-capacity-mailbox"),
     settings = ClusterShardingSettings(system),
     extractEntityId = extractEntityId,
     extractShardId = extractShardId)
@@ -102,11 +87,9 @@ object AccountActor {
 
 case object Stop
 
-class AccountActor(timeoutRate: Rate, stashHitCounter: Counter) extends PersistentActor with ActorLogging with Timers with Stash {
+class AccountActor() extends PersistentActor with ActorLogging with Timers with Stash {
 
   override def internalStashOverflowStrategy: StashOverflowStrategy = ReplyToStrategy(AccountStashOverflow(accountId))
-
-  import akka.cluster.sharding.ShardRegion.Passivate
 
   context.setReceiveTimeout(Sharding.PassivateAfter.seconds)
 
@@ -126,14 +109,12 @@ class AccountActor(timeoutRate: Rate, stashHitCounter: Counter) extends Persiste
     }
   }
 
-  def validateMoneyTransaction(moneyTransaction: MoneyTransaction): Boolean = {
-    if (moneyTransaction.sourceAccountId == accountId)
-      validate(ChangeBalance(accountId, -moneyTransaction.amount))
+  def validateMoneyTransaction(sourceAccountId: String, amount: Int): Boolean = {
+    if (sourceAccountId == accountId)
+      activeBalance + (-amount) >= 0
     else
-      validate(ChangeBalance(accountId, moneyTransaction.amount))
-
+      true
   }
-
 
   def onEvent(e: Any): Unit = {
     e match {
@@ -149,11 +130,11 @@ class AccountActor(timeoutRate: Rate, stashHitCounter: Counter) extends Persiste
   }
 
   def canRespondToPreviousTransactionsCoordinators(currentTransactionId: String): Receive = {
-    case r: Rollback if  r.transaction.transactionId != currentTransactionId =>
-      sender() ! AckRollback(r.accountId, r.transaction.transactionId, r.deliveryId)
+    case r: Rollback if  r.transactionId != currentTransactionId =>
+      sender() ! AckRollback(accountId, r.deliveryId)
 
-    case f: Finalize if f.transaction.transactionId != currentTransactionId =>
-      sender() ! AckFinalize(accountId, f.transaction.transactionId, f.deliveryId)
+    case f: Finalize if f.transactionId != currentTransactionId =>
+      sender() ! AckFinalize(accountId, f.deliveryId)
   }
 
   def showsLocked: Receive = {
@@ -167,25 +148,22 @@ class AccountActor(timeoutRate: Rate, stashHitCounter: Counter) extends Persiste
   }
 
   def canRejectInvalidChangeBalance: Receive = {
-    case c @ ChangeBalance(_, _) if !validate(c) =>
-      sender() ! Rejected()
+    case c: ChangeBalance if !validate(c) =>
+      sender() ! Rejected("na")
   }
 
   def canVoteNoOnMoneyTransaction: Receive = {
-    case Vote(_, moneyTransaction: MoneyTransaction) if !validateMoneyTransaction(moneyTransaction) =>
+    case Vote(_, _ , sourceAccountId, _ , amount) if !validateMoneyTransaction(sourceAccountId, amount) =>
       sender() ! No(accountId)
   }
 
   def canStashChangeBalanceCommand: Receive = {
-
     case c : ChangeBalance if validate(c) =>
-      stashHitCounter.increment()
       stash()
   }
 
   def canStashVoteRequest: Receive = {
-    case Vote(_, moneyTransaction) if validateMoneyTransaction(moneyTransaction) =>
-      stashHitCounter.increment()
+    case Vote(_, _, sourceAccountId, _, amount) if validateMoneyTransaction(sourceAccountId,amount) =>
       stash()
   }
 
@@ -203,7 +181,7 @@ class AccountActor(timeoutRate: Rate, stashHitCounter: Counter) extends Persiste
         e => {
           onEvent(e)
           activeBalance = balance
-          replyTo ! Accepted()
+          replyTo ! Accepted("na")
           unstashAll()
           context.become(receiveCommand, discardOld = true)
         }
@@ -212,11 +190,11 @@ class AccountActor(timeoutRate: Rate, stashHitCounter: Counter) extends Persiste
 
   var coordinator: ActorRef = _
   def canVoteYesOnMoneyTransaction: Receive = {
-    case Vote(_, moneyTransaction: MoneyTransaction) if validateMoneyTransaction(moneyTransaction) =>
+    case Vote(_, transactionId, sourceAccountId, destinationAccountId, amount) if validateMoneyTransaction(sourceAccountId, amount) =>
       coordinator = sender()
       coordinator ! Yes(accountId)
-      timers.startSingleTimer(0, TimedOut(moneyTransaction.transactionId), AccountActor.CommitOrAbortTimeout)
-      context.become(waitingForCommitOrAbortOrTimeout(moneyTransaction))
+      timers.startSingleTimer(accountId, TimedOut, AccountActor.CommitOrAbortTimeout)
+      context.become(waitingForCommitOrAbortOrTimeout(MoneyTransaction(transactionId, sourceAccountId, destinationAccountId, amount)))
   }
 
   def whileChangingBalance: Receive = canGetCurrentBalance
@@ -247,21 +225,20 @@ class AccountActor(timeoutRate: Rate, stashHitCounter: Counter) extends Persiste
         .orElse(showsLocked)
         .orElse {
 
-            case Abort(_, transId) if transId == transaction.transactionId =>
+            case Abort(_, abortTransactionId) if abortTransactionId == transaction.transactionId =>
               // don't worry about sending an Ack here, since the coordinator can assume it's gonna time out anyway
-              timers.cancelAll()
+              timers.cancel(accountId)
               coordinator = null
               unstashAll()
               context.become(receiveCommand, discardOld = true)
 
-            case TimedOut(_) =>
-              timeoutRate.mark()
+            case TimedOut =>
               coordinator = null
               unstashAll()
               context.become(receiveCommand, discardOld = true)
 
-            case Commit(_, tId: String) if tId == transaction.transactionId =>
-              timers.cancelAll()
+            case Commit(_, commitTransactionId: String) if commitTransactionId == transaction.transactionId =>
+              timers.cancel(accountId)
               val event = if (transaction.sourceAccountId == accountId) BalanceChanged(-transaction.amount) else BalanceChanged(transaction.amount)
               persistAllAsync(List(transaction, event)) {
                 case _: MoneyTransaction => // do nothing
@@ -269,7 +246,7 @@ class AccountActor(timeoutRate: Rate, stashHitCounter: Counter) extends Persiste
                   context.become(waitingForFinalizeOrRollback(transaction), discardOld = true)
                   onEvent(e)
                   activeBalance = previousBalance
-                  coordinator ! AckCommit(accountId, tId)
+                  coordinator ! AckCommit(accountId)
               }
         }
 
@@ -283,13 +260,13 @@ class AccountActor(timeoutRate: Rate, stashHitCounter: Counter) extends Persiste
             .orElse(showsLocked)
             .orElse(canRespondToPreviousTransactionsCoordinators(transaction.transactionId))
             .orElse {
-              case finalize @ Finalize(_, t, deliveryId) if !alreadyReceived && t.transactionId == transaction.transactionId =>
+              case finalize @ Finalize(_, transactionId, deliveryId) if !alreadyReceived && transactionId == transaction.transactionId =>
                 if (coordinator == null) coordinator = sender()
                 alreadyReceived = true
                 persistAsync(finalize) {
                   _ => {
                     alreadyReceived = false
-                    coordinator ! AckFinalize(accountId, transaction.transactionId, deliveryId)
+                    coordinator ! AckFinalize(accountId, deliveryId)
                     coordinator = null
                     activeBalance = balance
                     unstashAll()
@@ -297,7 +274,7 @@ class AccountActor(timeoutRate: Rate, stashHitCounter: Counter) extends Persiste
                   }
                 }
 
-              case rollback @ Rollback(_, t, _) if !alreadyReceived && t.transactionId == transaction.transactionId =>
+              case rollback @ Rollback(_, transactionId, _) if !alreadyReceived && transactionId == transaction.transactionId =>
                 if (coordinator == null) coordinator = sender()
                 val counterEvent = if (transaction.sourceAccountId == accountId) BalanceChanged(transaction.amount) else BalanceChanged(-transaction.amount)
                 alreadyReceived = true
@@ -307,7 +284,7 @@ class AccountActor(timeoutRate: Rate, stashHitCounter: Counter) extends Persiste
                     activeBalance = balance
                   case r: Rollback =>
                     alreadyReceived = false
-                    coordinator ! AckRollback(accountId, t.transactionId, r.deliveryId)
+                    coordinator ! AckRollback(accountId, r.deliveryId)
                     coordinator = null
                     unstashAll()
                     context.become(receiveCommand, discardOld = true) // going back to normal

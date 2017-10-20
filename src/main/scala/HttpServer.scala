@@ -15,6 +15,7 @@ import com.lightbend.cinnamon.metric._
 import scala.concurrent.duration._
 import scala.language.postfixOps
 
+import app.messages._
 
 class ShardInspector(region: ActorRef, shardCounter: GaugeLong, entityCounter: GaugeLong) extends Actor with Timers {
 
@@ -103,7 +104,7 @@ object Main extends App {
     case (transactionId, sourceAccountId, destinationAccountId, amount) => {
       post {
         complete {
-          val coordinator = system.actorOf(Props(new Coordinator(accounts, votingTimeouts, commitTimeouts)), transactionId)
+          val coordinator = system.actorOf(Props(new Coordinator(accounts)), transactionId)
           (coordinator ? MoneyTransaction(transactionId, sourceAccountId, destinationAccountId, amount)).map {
             case Accepted(_) => "true"
             case Rejected(_) => "false"
