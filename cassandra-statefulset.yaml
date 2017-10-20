@@ -4,7 +4,7 @@ metadata:
   name: cassandra
 spec:
   serviceName: cassandra
-  replicas: 3 
+  replicas: 4 
   template:
     metadata:
       labels:
@@ -26,10 +26,10 @@ spec:
           name: cql
         resources:
           limits:
-            cpu: 2 
+            cpu: 3 
             memory: 15Gi
           requests:
-           cpu: 2
+           cpu: 3
            memory: 15Gi
         securityContext:
           capabilities:

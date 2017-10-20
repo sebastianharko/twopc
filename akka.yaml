@@ -15,7 +15,7 @@ spec:
         imagePullPolicy: Always
         env:
         - name: NUM_SHARDS
-          value: "20"
+          value: "28"
         - name: QUERY_HTTP_TIMEOUT
           value: "550"
         - name: HTTP_TIMEOUT
@@ -36,9 +36,9 @@ spec:
         - containerPort: 2551
         resources:
           requests:
-            cpu: 4 
+            cpu: 5 
             memory: 15Gi 
           limits:
-            cpu: 4
+            cpu: 5
             memory: 15Gi
 
