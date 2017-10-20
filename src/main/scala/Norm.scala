@@ -1,6 +1,6 @@
 package rd
 
-object Norm extends App {
+object Norm {
 
   import scala.collection.mutable
 

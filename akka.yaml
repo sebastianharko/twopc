@@ -11,7 +11,7 @@ spec:
     spec:
       containers:
       - name: twopc
-        image: sebastianharko/2pc:5.1
+        image: sebastianharko/2pc:5.2
         imagePullPolicy: Always
         env:
         - name: CASS
