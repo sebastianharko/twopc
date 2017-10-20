@@ -4,7 +4,7 @@ metadata:
   name: cassandra
 spec:
   serviceName: cassandra
-  replicas: 4 
+  replicas: 5
   template:
     metadata:
       labels:
@@ -26,10 +26,10 @@ spec:
           name: cql
         resources:
           limits:
-            cpu: 3 
+            cpu: 4 
             memory: 15Gi
           requests:
-           cpu: 3
+           cpu: 4
            memory: 15Gi
         securityContext:
           capabilities:
@@ -41,7 +41,7 @@ spec:
               command: ["/bin/sh", "-c", "nodetool drain"]
         env:
           - name: MAX_HEAP_SIZE
-            value: 8192M 
+            value: 12288M
           - name: HEAP_NEWSIZE
             value: 1024M 
           - name: CASSANDRA_SEEDS

@@ -23,11 +23,7 @@ class ShardInspector(region: ActorRef, shardCounter: GaugeLong, entityCounter: G
     case "Start" =>
       timers.startPeriodicTimer("ShardInspector", "Inspect", 5 seconds)
     case "Inspect" =>
-      region ! ShardRegion.GetShardRegionState
-    case s: CurrentShardRegionState =>
-      shardCounter.set(s.shards.size)
-      val numEntities: Int = s.shards.map(_.entityIds.size).sum
-      entityCounter.set(numEntities)
+      ???
   }
 
 }
@@ -50,7 +46,7 @@ object Main extends App {
 
   val accounts = Sharding.accounts(system, accountTimeouts, accountStashHitCounter)
 
-  system.actorOf(Props(new ShardInspector(accounts, shardCounter, entityCounter))) ! "Start"
+  // system.actorOf(Props(new ShardInspector(accounts, shardCounter, entityCounter))) ! "Start"
 
   implicit val materializer = ActorMaterializer()
   // needed for the future flatMap/onComplete in the end

@@ -17,7 +17,7 @@ spec:
         - name: CASS
           value: "cassandra-0.cassandra.default.svc.cluster.local"
         - name: NUM_SHARDS
-          value: "28"
+          value: "32"
         - name: QUERY_HTTP_TIMEOUT
           value: "550"
         - name: HTTP_TIMEOUT
