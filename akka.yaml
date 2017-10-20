@@ -11,17 +11,17 @@ spec:
     spec:
       containers:
       - name: twopc
-        image: sebastianharko/2pc:4.1
+        image: sebastianharko/2pc:4.2
         imagePullPolicy: Always
         env:
         - name: QUERY_HTTP_TIMEOUT
           value: "550"
         - name: HTTP_TIMEOUT
-          value: "1500"
+          value: "1400"
         - name: ACCOUNT_TIMEOUT
-          value: "1000"
+          value: "2500"
         - name: VOTING_TIMEOUT
-          value: "1000"
+          value: "2000"
         - name: COMMIT_TIMEOUT
           value: "1000"
         - name: POD_IP
@@ -34,9 +34,9 @@ spec:
         - containerPort: 2551
         resources:
           requests:
-            cpu: 2
-            memory: 7Gi 
+            cpu: 4
+            memory: 15Gi 
           limits:
-            cpu: 2
-            memory: 7Gi
+            cpu: 4
+            memory: 15Gi
 

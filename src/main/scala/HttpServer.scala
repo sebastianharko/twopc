@@ -45,10 +45,10 @@ object Main extends App {
   val votingTimeouts = CinnamonMetrics(system).createRate("coordinatorVotingTimeout")
   val commitTimeouts = CinnamonMetrics(system).createRate("coordinatorCommitTimeout")
   val accountTimeouts = CinnamonMetrics(system).createRate("accountTimeout")
-
+  val accountStashHitCounter = CinnamonMetrics(system).createCounter("accountStashHit")
   val activeTransactions = CinnamonMetrics(system).createGaugeLong("transactions")
 
-  val accounts = Sharding.accounts(system, accountTimeouts)
+  val accounts = Sharding.accounts(system, accountTimeouts, accountStashHitCounter)
 
   system.actorOf(Props(new ShardInspector(accounts, shardCounter, entityCounter))) ! "Start"
 

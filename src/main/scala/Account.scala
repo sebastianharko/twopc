@@ -4,7 +4,8 @@ import akka.actor.{ActorLogging, ActorRef, ActorSystem, Props, ReceiveTimeout, S
 import akka.cluster.sharding.ShardRegion.{ExtractEntityId, ExtractShardId}
 import akka.cluster.sharding.{ClusterSharding, ClusterShardingSettings}
 import akka.persistence.{PersistentActor, RecoveryCompleted, ReplyToStrategy, StashOverflowStrategy}
-import com.lightbend.cinnamon.metric.{Rate}
+import com.lightbend.cinnamon.metric.{Counter, Rate}
+
 
 
 
@@ -84,9 +85,9 @@ object Sharding {
     case Finalize(accountId, _, _) => (abs(accountId.hashCode) % NumShards).toString
   }
 
-  def accounts(system: ActorSystem, rate: Rate): ActorRef = ClusterSharding(system).start(
+  def accounts(system: ActorSystem, rate: Rate, stashHitCounter: Counter): ActorRef = ClusterSharding(system).start(
     typeName = "Account",
-    entityProps = Props(new AccountActor(rate)).withMailbox("stash-capacity-mailbox"),
+    entityProps = Props(new AccountActor(rate, stashHitCounter)).withMailbox("stash-capacity-mailbox"),
     settings = ClusterShardingSettings(system),
     extractEntityId = extractEntityId,
     extractShardId = extractShardId)
@@ -101,7 +102,7 @@ object AccountActor {
 
 case object Stop
 
-class AccountActor(timeoutRate: Rate) extends PersistentActor with ActorLogging with Timers with Stash {
+class AccountActor(timeoutRate: Rate, stashHitCounter: Counter) extends PersistentActor with ActorLogging with Timers with Stash {
 
   override def internalStashOverflowStrategy: StashOverflowStrategy = ReplyToStrategy(AccountStashOverflow(accountId))
 
@@ -178,11 +179,13 @@ class AccountActor(timeoutRate: Rate) extends PersistentActor with ActorLogging 
   def canStashChangeBalanceCommand: Receive = {
 
     case c : ChangeBalance if validate(c) =>
+      stashHitCounter.increment()
       stash()
   }
 
   def canStashVoteRequest: Receive = {
     case Vote(_, moneyTransaction) if validateMoneyTransaction(moneyTransaction) =>
+      stashHitCounter.increment()
       stash()
   }
 
