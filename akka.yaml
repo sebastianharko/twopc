@@ -14,6 +14,8 @@ spec:
         image: sebastianharko/2pc:4.4
         imagePullPolicy: Always
         env:
+        - name: CASS
+          value: "cassandra-0.cassandra.default.svc.cluster.local"
         - name: NUM_SHARDS
           value: "28"
         - name: QUERY_HTTP_TIMEOUT
