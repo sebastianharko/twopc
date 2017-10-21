@@ -39,9 +39,6 @@ libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3"
 
 libraryDependencies += "com.typesafe.akka" %% "akka-persistence-cassandra" % "0.58"
 
-// akka 2.5.x
-libraryDependencies += "com.github.dnvriend" %% "akka-persistence-jdbc" % "3.0.0"
-
 // Use Coda Hale Metrics
 libraryDependencies += Cinnamon.library.cinnamonCHMetricsStatsDReporter
 libraryDependencies += Cinnamon.library.cinnamonCHMetrics
