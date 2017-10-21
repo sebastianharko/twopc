@@ -17,17 +17,6 @@ import scala.language.postfixOps
 
 import app.messages._
 
-class ShardInspector(region: ActorRef, shardCounter: GaugeLong, entityCounter: GaugeLong) extends Actor with Timers {
-
-  def receive = {
-    case "Start" =>
-      timers.startPeriodicTimer("ShardInspector", "Inspect", 5 seconds)
-    case "Inspect" =>
-      ???
-  }
-
-}
-
 class Main
 
 object Main extends App {
@@ -46,11 +35,10 @@ object Main extends App {
 
   val accounts = Sharding.accounts(system, accountTimeouts, accountStashHitCounter)
 
-  // system.actorOf(Props(new ShardInspector(accounts, shardCounter, entityCounter))) ! "Start"
+  implicit val blockingDispatcher = system.dispatchers.lookup("my-blocking-dispatcher")
+
 
   implicit val materializer = ActorMaterializer()
-  // needed for the future flatMap/onComplete in the end
-  implicit val executionContext = system.dispatcher
 
   val StandardTimeout = sys.env.get("HTTP_TIMEOUT").map(_.toLong milliseconds).getOrElse(1500 milliseconds)
   implicit val standardTimeout = akka.util.Timeout(StandardTimeout)
