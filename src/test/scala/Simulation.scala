@@ -10,8 +10,6 @@ import scala.language.postfixOps
 
 class BasicSimulation extends Simulation {
 
-  val population = sys.env.get("POPULATION").map(_.toInt).getOrElse(Int.MaxValue)
-
   val feeder : Iterator[Map[String, Any]] = Iterator.continually {
     val transactionId = java.util.UUID.randomUUID().toString.replace("-", "").substring(0, 15)
     val from = java.util.UUID.randomUUID().toString.replace("-", "").substring(0, 15)

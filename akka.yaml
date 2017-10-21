@@ -11,13 +11,13 @@ spec:
     spec:
       containers:
       - name: twopc
-        image: sebastianharko/2pc:5.2
+        image: sebastianharko/2pc:5.3
         imagePullPolicy: Always
         env:
         - name: CASS
           value: "cassandra-0.cassandra.default.svc.cluster.local"
         - name: NUM_SHARDS
-          value: "32"
+          value: "40"
         - name: QUERY_HTTP_TIMEOUT
           value: "550"
         - name: HTTP_TIMEOUT

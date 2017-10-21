@@ -1,6 +1,6 @@
 name := "2pc"
 
-version := "5.2"
+version := "5.3"
 
 scalaVersion := "2.12.3"
 
@@ -38,6 +38,9 @@ libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.1" % "test"
 libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3"
 
 libraryDependencies += "com.typesafe.akka" %% "akka-persistence-cassandra" % "0.58"
+
+// akka 2.5.x
+libraryDependencies += "com.github.dnvriend" %% "akka-persistence-jdbc" % "3.0.0"
 
 // Use Coda Hale Metrics
 libraryDependencies += Cinnamon.library.cinnamonCHMetricsStatsDReporter
