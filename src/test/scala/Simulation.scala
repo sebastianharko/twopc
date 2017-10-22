@@ -28,9 +28,10 @@ class BasicSimulation extends Simulation {
 
   val scn1: ScenarioBuilder = scenario("First Scenario").feed(feeder)
       .exec(http("transaction").post(session => s"http://$host/$action/${session("transactionId").as[String]}/${session("from").as[String]}/${session("to").as[String]}/0"))
-      .exec(http("query-1").get(session => s"http://$host/query/${session("from").as[String]}"))
-      .exec(http("query-2").get(session => s"http://$host/query/${session("to").as[String]}")
-  )
+      .pause(250 milliseconds, 750 milliseconds)
+      .exec(http("check-transaction").get(session => s"http://$host/status/${session("transactionId").as[String]}").check(substring("success")))
+          .exec(http("query-1").get(session => s"http://$host/query/${session("from").as[String]}"))
+          .exec(http("query-2").get(session => s"http://$host/query/${session("to").as[String]}"))
 
 
   setUp(scn1.inject(constantUsersPerSec(users) during(time minutes))).protocols(httpConf)
