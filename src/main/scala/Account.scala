@@ -70,7 +70,7 @@ object Sharding {
     case Finalize(accountId, _, _) => (abs(accountId.hashCode) % NumShards).toString
   }
 
-  def accounts(system: ActorSystem, rate: Rate, stashHitCounter: Counter): ActorRef = ClusterSharding(system).start(
+  def accounts(system: ActorSystem): ActorRef = ClusterSharding(system).start(
     typeName = "Account",
     entityProps = Props(new AccountActor()).withMailbox("stash-capacity-mailbox"),
     settings = ClusterShardingSettings(system),

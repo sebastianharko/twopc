@@ -22,7 +22,7 @@ class TestAccountSharding extends TestKit(ActorSystem("minimal")) with WordSpecL
   val fakeRate: Rate = CinnamonMetrics(system).createRate("fakeRate")
   val fakeCounter: Counter = CinnamonMetrics(system).createCounter("fakeCounter")
 
-  val accounts: ActorRef = Sharding.accounts(system, fakeRate, fakeCounter)
+  val accounts: ActorRef = Sharding.accounts(system)
 
   "a sharded account" must {
 
@@ -316,7 +316,7 @@ class TestCoordinator extends TestKit(ActorSystem("minimal")) with WordSpecLike
   val blackHole: ActorRef = system.actorOf(TestActors.blackholeProps)
   implicit val timeout = Timeout(2 seconds)
 
-  val accounts: ActorRef = Sharding.accounts(system, fakeRate, fakeCounter)
+  val accounts: ActorRef = Sharding.accounts(system)
 
   "a coordinator" must {
 
