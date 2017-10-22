@@ -43,7 +43,7 @@ object TransactionStatusTable {
   val Success = 2
   val Failed = 3
 
-  def toString(s: Int) = {
+  def toString(s: Int) = s match {
     case 0 => "not started"
     case 1 => "in progress"
     case 2 => "success"
