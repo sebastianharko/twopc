@@ -81,7 +81,7 @@ object Coordinator {
   }
 
   def coordinatorShardRegion(system: ActorSystem, accountsShardRegion: ActorRef): ActorRef = ClusterSharding(system).start(
-    typeName = "Coordinator",
+    typeName = "TCoordinator",
     entityProps = Props(new Coordinator(accountsShardRegion)),
     settings = ClusterShardingSettings(system),
     extractEntityId = extractEntityId,
@@ -89,7 +89,7 @@ object Coordinator {
 
 
   def proxyToShardRegion(system: ActorSystem): ActorRef = ClusterSharding(system).startProxy(
-    typeName = "Coordinator",
+    typeName = "TCoordinator",
     role = Some("COORDINATOR"),
     extractEntityId = extractEntityId,
     extractShardId = extractShardId

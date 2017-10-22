@@ -25,7 +25,6 @@ object AccountActor {
 
   val CommitOrAbortTimeout: FiniteDuration = sys.env.get("ACCOUNT_TIMEOUT").map(_.toInt).map(_ milliseconds).getOrElse(600 milliseconds)
 
-
   val extractEntityId: ExtractEntityId = {
     case c @ ChangeBalance(accountId, _, _) => (accountId, c)
     case c @ GetBalance(accountId) => (accountId, c)
