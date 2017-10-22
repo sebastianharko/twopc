@@ -10,5 +10,5 @@ kubectl create -f akka-accounts.yaml
 sleep 20
 kubectl create -f akka-coordinators.yaml
 kubectl create -f akka-http.yaml
-slepe 10
+sleep 10
 kubectl create -f akka-service.yaml
