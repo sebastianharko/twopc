@@ -114,7 +114,7 @@ object Main extends App {
         post {
           complete {
             accounts ! ChangeBalance(accountId, amount)
-            StatusCodes.Accepted
+            StatusCodes.Accepted -> "Accepted"
           }
         }
     } ~ path("withdraw" / Segment / IntNumber) {
@@ -122,7 +122,7 @@ object Main extends App {
         post {
           complete {
             accounts ! ChangeBalance(accountId, -amount)
-            StatusCodes.Accepted
+            StatusCodes.Accepted -> "Accepted"
           }
         }
     } ~ path("transaction" / Segment / Segment / Segment / IntNumber) {
@@ -130,7 +130,7 @@ object Main extends App {
         post {
           complete {
             coordinators ! MoneyTransaction(transactionId, sourceAccountId, destinationAccountId, amount, false)
-            StatusCodes.Accepted
+            StatusCodes.Accepted -> "Accepted"
           }
         }
       }
@@ -138,7 +138,8 @@ object Main extends App {
       case transactionId => {
         get {
           complete {
-            proxyToCoordinators.ask(GetTransactionStatus(transactionId))(queryTimeout, ActorRef.noSender).mapTo[TransactionStatus].map((t) => t.status.toString)
+            proxyToCoordinators.ask(GetTransactionStatus(transactionId))(queryTimeout, ActorRef.noSender).mapTo[TransactionStatus]
+                .map((t) => TransactionStatusTable.toString(t.status))
           }
         }
       }

@@ -37,10 +37,19 @@ object Phases {
 }
 
 object TransactionStatusTable {
+
   val NotStarted = 0
   val InProgress = 1
   val Success = 2
   val Failed = 3
+
+  def toString(s: Int) = {
+    case 0 => "not started"
+    case 1 => "in progress"
+    case 2 => "success"
+    case 3 => "failed"
+  }
+
 }
 
 object CTimers {

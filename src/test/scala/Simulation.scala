@@ -27,7 +27,7 @@ class BasicSimulation extends Simulation {
   val httpConf: HttpProtocolBuilder = http
 
   val scn1: ScenarioBuilder = scenario("First Scenario").feed(feeder)
-      .exec(http("transaction").post(session => s"http://$host/$action/${session("transactionId").as[String]}/${session("from").as[String]}/${session("to").as[String]}/0").check(substring("true")))
+      .exec(http("transaction").post(session => s"http://$host/$action/${session("transactionId").as[String]}/${session("from").as[String]}/${session("to").as[String]}/0"))
       .exec(http("query-1").get(session => s"http://$host/query/${session("from").as[String]}"))
       .exec(http("query-2").get(session => s"http://$host/query/${session("to").as[String]}")
   )
