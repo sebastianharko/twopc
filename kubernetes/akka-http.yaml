@@ -20,9 +20,9 @@ spec:
         - name: CASS
           value: "cassandra-0.cassandra.default.svc.cluster.local"
         - name: QUERY_HTTP_TIMEOUT
-          value: "500"
-        - name: HTTP_TIMEOUT
           value: "700"
+        - name: HTTP_TIMEOUT
+          value: "400"
         - name: POD_IP
           valueFrom:
             fieldRef:
