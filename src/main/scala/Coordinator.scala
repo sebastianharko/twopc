@@ -90,7 +90,7 @@ object Coordinator {
 
   def proxyToShardRegion(system: ActorSystem): ActorRef = ClusterSharding(system).startProxy(
     typeName = "Coordinator",
-    role = None,
+    role = Some("COORDINATOR"),
     extractEntityId = extractEntityId,
     extractShardId = extractShardId
   )

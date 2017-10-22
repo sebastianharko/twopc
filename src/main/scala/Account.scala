@@ -58,7 +58,7 @@ object AccountActor {
 
   def proxyToShardRegion(system: ActorSystem): ActorRef = ClusterSharding(system).startProxy(
     typeName = "Account",
-    role = None,
+    role = Some("ACCOUNT"),
     extractEntityId = extractEntityId,
     extractShardId = extractShardId
   )
