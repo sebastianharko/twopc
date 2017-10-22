@@ -5,6 +5,7 @@ kubectl delete service etcd
 kubectl delete service cassandra
 kubectl delete service twopc
 kubectl delete service twopc-akkamgmt
+kubectl delete service z
 kubectl delete deployment twopc
 kubectl delete deployment cassandra
 kubectl delete deployment etcd

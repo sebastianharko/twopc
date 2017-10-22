@@ -1,5 +1,5 @@
 #!/bin/sh
-sbt clean
+sudo sbt clean
 sbt docker:publishLocal
-docker tag 2pc:$VERSION sebastianharko/2pc:$VERSION
-docker push sebastianharko/2pc:$VERSION
+sudo docker tag 2pc:$VERSION sebastianharko/2pc:$VERSION
+sudo docker push sebastianharko/2pc:$VERSION
