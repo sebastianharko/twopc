@@ -1,11 +1,14 @@
-Cassandra
-=========
+#!/bin/sh
+
+# Run locally without minikube
 
 sudo ifconfig lo0 alias 127.0.0.2 up
 sudo ifconfig lo0 alias 127.0.0.3 up
 ccm remove test
 ccm create test -v 3.0.8 -n 3 -s
 export CASS=localhost
+docker stop etcd
+docker rm etcd
 docker run \
   --detach \
   --name etcd \
