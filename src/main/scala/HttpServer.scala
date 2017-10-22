@@ -101,7 +101,7 @@ object Main extends App {
       accountId => {
         get {
           complete {
-            proxyToAccounts.ask(GetBalance(accountId))(queryTimeout, ActorRef.noSender).mapTo[Int].map((r: Int) => r.toString)
+            proxyToAccounts.ask(GetBalance(accountId))(queryTimeout, ActorRef.noSender).mapTo[Balance].map((r: Balance) => r.amount.toString)
           }
         }
       }
@@ -130,7 +130,14 @@ object Main extends App {
           }
         }
       }
-
+    } ~ path("status" / Segment) {
+      case transactionId => {
+        get {
+          complete {
+            proxyToCoordinators.ask(GetTransactionStatus(transactionId))(queryTimeout, ActorRef.noSender).mapTo[TransactionStatus].map((t) => t.status.toString)
+          }
+        }
+      }
     }
 
     val bindingFuture = Http().bindAndHandle(route, scala.sys.env.getOrElse("POD_IP", "0.0.0.0"), 8080)

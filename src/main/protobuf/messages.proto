@@ -1,6 +1,11 @@
 syntax = "proto3";
 package app;
 
+// messages from Account to web
+message Balance {
+    int32 amount = 1;
+}
+
 // messages from web to Account
 
 message ChangeBalance {

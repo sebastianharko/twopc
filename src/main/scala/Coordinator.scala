@@ -55,13 +55,11 @@ object Coordinator {
 
   val NumShards: Int = sys.env.get("NUM_SHARDS_COORD").map(_.toInt).getOrElse(100)
 
-  type AccountId = String
+  val PassivateAfter: Int = sys.env.get("PASSIVATE_COORD").map(_.toInt).getOrElse(10)
 
-  val PassivateAfter: Int = sys.env.get("PASSIVATE_COORD").map(_.toInt).getOrElse(3 * 60) // ms
+  val TimeOutForVotingPhase: FiniteDuration = sys.env.get("VOTING_TIMEOUT").map(_.toLong milliseconds).getOrElse(600 milliseconds)
 
-  val TimeOutForVotingPhase: FiniteDuration = sys.env.get("VOTING_TIMEOUT").map(_.toLong milliseconds).getOrElse(400 milliseconds)
-
-  val TimeOutForCommitPhase: FiniteDuration = sys.env.get("COMMIT_TIMEOUT").map(_.toLong milliseconds).getOrElse(400 milliseconds)
+  val TimeOutForCommitPhase: FiniteDuration = sys.env.get("COMMIT_TIMEOUT").map(_.toLong milliseconds).getOrElse(600 milliseconds)
 
   val extractEntityId: ExtractEntityId = {
     case mt @ MoneyTransaction(transactionId, _, _, _, _) => (transactionId, mt)
@@ -87,6 +85,9 @@ object Coordinator {
     extractEntityId = extractEntityId,
     extractShardId = extractShardId
   )
+
+  type AccountId = String
+
 }
 
 class Coordinator(accountsShardRegion: ActorRef) extends PersistentActor with ActorLogging with Timers with AtLeastOnceDelivery {
@@ -134,17 +135,10 @@ class Coordinator(accountsShardRegion: ActorRef) extends PersistentActor with Ac
     case GetTransactionStatus(_) =>
       sender() ! TransactionStatus(TransactionStatusTable.InProgress)
 
-    case TimedOut =>
-      replyTo.foreach(_ ! Rejected(moneyTransaction.transactionId))
-      accountsShardRegion ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
-      accountsShardRegion ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
-      success = false
-      context.become(done)
-
     case AccountStashOverflow(someAccountId) =>
       self ! No(someAccountId)
 
-    case No(_) =>
+    case No(_) | TimedOut =>
       replyTo.foreach(_ ! Rejected(moneyTransaction.transactionId))
       accountsShardRegion ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
       accountsShardRegion ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
@@ -243,7 +237,7 @@ class Coordinator(accountsShardRegion: ActorRef) extends PersistentActor with Ac
 
   def done: Receive = {
 
-    case GetTransactionStatus =>
+    case GetTransactionStatus(_) =>
       if (success) sender() ! TransactionStatus(TransactionStatusTable.Success) else
         sender() ! TransactionStatus(TransactionStatusTable.Failed)
 

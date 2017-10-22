@@ -19,10 +19,12 @@ See ACCOUNT.txt for the state machine diagram
 
 object AccountActor {
 
-  val PassivateAfter: Int = sys.env.get("PASSIVATE_ACCOUNT").map(_.toInt).getOrElse(3 * 60) // ms
+  val NumShards: Int = sys.env.get("NUM_SHARDS_ACCOUNTS").map(_.toInt).getOrElse(100)
+
+  val PassivateAfter: Int = sys.env.get("PASSIVATE_ACCOUNT").map(_.toInt).getOrElse(10)
+
   val CommitOrAbortTimeout: FiniteDuration = sys.env.get("ACCOUNT_TIMEOUT").map(_.toInt).map(_ milliseconds).getOrElse(600 milliseconds)
 
-  val NumShards: Int = sys.env.get("NUM_SHARDS_ACCOUNTS").map(_.toInt).getOrElse(100)
 
   val extractEntityId: ExtractEntityId = {
     case c @ ChangeBalance(accountId, _, _) => (accountId, c)
@@ -105,7 +107,7 @@ class AccountActor() extends PersistentActor with ActorLogging with Timers with 
 
   def canGetCurrentBalance: Receive = {
     case GetBalance(_) =>
-      sender() ! activeBalance
+      sender() ! Balance(activeBalance)
   }
 
   def canRespondToPreviousTransactionsCoordinators(currentTransactionId: String): Receive = {
