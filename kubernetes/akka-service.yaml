@@ -2,10 +2,10 @@
 kind: Service
 apiVersion: v1
 metadata:
-  name: twopc
+  name: z
 spec:
   selector:
-    app: twopc
+    app: http
   ports:
     - protocol: TCP
       port: 8080

@@ -4,9 +4,11 @@ kind: Deployment
 metadata:
   name: accounts
 spec:
-  replicas: 2
+  replicas: 1
   template:
     metadata:
+      labels:
+        app: accounts
     spec:
       containers:
       - name: twopc
