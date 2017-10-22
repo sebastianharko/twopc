@@ -1,6 +1,8 @@
 package app
 
-import akka.actor.{ActorLogging, ActorRef, Timers}
+import akka.actor.{ActorLogging, ActorRef, ActorSystem, Props, ReceiveTimeout, Timers}
+import akka.cluster.sharding.ShardRegion.{ExtractEntityId, ExtractShardId, Passivate}
+import akka.cluster.sharding.{ClusterSharding, ClusterShardingSettings}
 import akka.persistence.{AtLeastOnceDelivery, PersistentActor, RecoveryCompleted}
 import app.messages._
 
@@ -8,27 +10,14 @@ import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.language.postfixOps
 
+
 /*
 
-    +----------------------+                        +------------------------+    timed out waiting for responses
-    |                      |     all votes 'Yes'    | Send a Commit  message ------\
-    |   Ask participants   |             ------------ to every  participant  |      -------------\
-    |   to vote            |------------/           | (at most once delivery)|                    ------+------------------+
-    |                      |                        +-----|------------|-----+                          |  Send  Rollback  |
-    +----------------------+                              |            |                                |  message  (at    |
-                                                          |            |                                |  least once      |
-    +----------------------+     acknowledge              |            |all participants                |  delivery)       |
-    |   Write  transaction |------------------------------+            |acknowledge the Commit          +------------------+
-    |   to coordinator's   |                                           |message
-    |   event log          |                                           |
-    +----------------------+                                     +-----|------------------+
-                                                                 |  Send Finalize message |
-                                                                 |  (at least once        |
-                                                                 |    delivery)           |
-                                                                 |                        |
-                                                                 +------------------------+
 
-*/
+See COORDINATOR.txt for the state machine diagram
+
+
+ */
 
 case object TimedOut
 
@@ -40,39 +29,84 @@ case object StartRollback
 
 case object StartVotingProcess
 
+sealed trait Phase
 object Phases {
-  val Initiated = "Initiated"
-  val Finalizing = "Finalizing"
-  val Rollingback = "Rollingback"
+  case object Initiated extends Phase
+  case object Finalizing extends Phase
+  case object Rollingback extends Phase
+}
+
+object TransactionStatusTable {
+  val NotStarted = 0
+  val InProgress = 1
+  val Success = 2
+  val Failed = 3
 }
 
 object CTimers {
 
-  val WaitingForVotes = "WaitingForVotes"
+  case object WaitingForVotes
 
-  val WaitingForCommitment = "WaitingForCommitment"
+  case object WaitingForCommitment
 
 }
 
 object Coordinator {
 
+  val NumShards: Int = sys.env.get("NUM_SHARDS_COORD").map(_.toInt).getOrElse(100)
+
   type AccountId = String
 
-  val TimeOutForVotingPhase = sys.env.get("VOTING_TIMEOUT").map(_.toLong milliseconds).getOrElse(400 milliseconds)
+  val PassivateAfter: Int = sys.env.get("PASSIVATE_COORD").map(_.toInt).getOrElse(3 * 60) // ms
 
-  val TimeOutForCommitPhase = sys.env.get("COMMIT_TIMEOUT").map(_.toLong milliseconds).getOrElse(400 milliseconds)
+  val TimeOutForVotingPhase: FiniteDuration = sys.env.get("VOTING_TIMEOUT").map(_.toLong milliseconds).getOrElse(400 milliseconds)
 
+  val TimeOutForCommitPhase: FiniteDuration = sys.env.get("COMMIT_TIMEOUT").map(_.toLong milliseconds).getOrElse(400 milliseconds)
+
+  val extractEntityId: ExtractEntityId = {
+    case mt @ MoneyTransaction(transactionId, _, _, _, _) => (transactionId, mt)
+    case gts @ GetTransactionStatus(transactionId) => (transactionId, gts)
+  }
+
+  val extractShardId: ExtractShardId = {
+    case MoneyTransaction(transactionId, _, _, _, _) => (Math.abs(transactionId.hashCode) % NumShards).toString
+    case GetTransactionStatus(transactionId) => (Math.abs(transactionId.hashCode) % NumShards).toString
+  }
+
+  def coordinatorShardRegion(system: ActorSystem, accountsShardRegion: ActorRef): ActorRef = ClusterSharding(system).start(
+    typeName = "Coordinator",
+    entityProps = Props(new Coordinator(accountsShardRegion)),
+    settings = ClusterShardingSettings(system),
+    extractEntityId = extractEntityId,
+    extractShardId = extractShardId)
+
+
+  def proxyToShardRegion(system: ActorSystem): ActorRef = ClusterSharding(system).startProxy(
+    typeName = "Coordinator",
+    role = None,
+    extractEntityId = extractEntityId,
+    extractShardId = extractShardId
+  )
 }
 
-class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorLogging with Timers with AtLeastOnceDelivery {
+class Coordinator(accountsShardRegion: ActorRef) extends PersistentActor with ActorLogging with Timers with AtLeastOnceDelivery {
 
   import Coordinator._
 
-  var phase: String = _
+  var success = false
+  var phase: Phase = _
   var moneyTransaction: MoneyTransaction = _
-  var replyTo: ActorRef = _
+  var replyTo: Option[ActorRef] = None
+
+  context.setReceiveTimeout(Coordinator.PassivateAfter.seconds)
 
   override def receiveCommand: Receive = {
+
+    case ReceiveTimeout => context.parent ! Passivate(stopMessage = Stop)
+    case Stop => context.stop(self)
+
+    case GetTransactionStatus(_) =>
+      sender() ! TransactionStatus(TransactionStatusTable.NotStarted)
 
     case transaction: MoneyTransaction =>
       persistAsync(transaction) { _ =>
@@ -80,13 +114,15 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
           self ! Check
         }
       onEvent(transaction)
-      this.replyTo = sender()
+      if (transaction.replyToSender) {
+        replyTo = Some(sender())
+      }
       self ! StartVotingProcess
 
     case StartVotingProcess =>
       val mt = moneyTransaction
-      shardedAccounts ! Vote(mt.destinationAccountId, mt.transactionId, mt.sourceAccountId, mt.destinationAccountId, mt.amount)
-      shardedAccounts ! Vote(mt.sourceAccountId, mt.transactionId, mt.sourceAccountId, mt.destinationAccountId, mt.amount)
+      accountsShardRegion ! Vote(mt.destinationAccountId, mt.transactionId, mt.sourceAccountId, mt.destinationAccountId, mt.amount)
+      accountsShardRegion ! Vote(mt.sourceAccountId, mt.transactionId, mt.sourceAccountId, mt.destinationAccountId, mt.amount)
       timers.startSingleTimer(CTimers.WaitingForVotes, TimedOut, TimeOutForVotingPhase)
       context.become(waitingForVoteResults, discardOld = true)
   }
@@ -95,29 +131,34 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
 
   def waitingForVoteResults: Receive = {
 
+    case GetTransactionStatus(_) =>
+      sender() ! TransactionStatus(TransactionStatusTable.InProgress)
+
     case TimedOut =>
-      replyTo ! Rejected(moneyTransaction.transactionId)
-      shardedAccounts ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
-      shardedAccounts ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
-      context.stop(self)
+      replyTo.foreach(_ ! Rejected(moneyTransaction.transactionId))
+      accountsShardRegion ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
+      accountsShardRegion ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
+      success = false
+      context.become(done)
 
     case AccountStashOverflow(someAccountId) =>
       self ! No(someAccountId)
 
     case No(_) =>
-      replyTo ! Rejected(moneyTransaction.transactionId)
-      shardedAccounts ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
-      shardedAccounts ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
+      replyTo.foreach(_ ! Rejected(moneyTransaction.transactionId))
+      accountsShardRegion ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
+      accountsShardRegion ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
       timers.cancel(CTimers.WaitingForVotes)
-      context.stop(self)
+      success = false
+      context.become(done)
 
     case Yes(accId) =>
       yesVotes += accId
       self ! Check
 
     case Check if yesVotes.size == 2 && phase == Phases.Initiated =>
-      shardedAccounts ! Commit(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
-      shardedAccounts ! Commit(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
+      accountsShardRegion ! Commit(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
+      accountsShardRegion ! Commit(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
       timers.cancel(CTimers.WaitingForVotes)
       timers.startSingleTimer(CTimers.WaitingForCommitment, TimedOut, TimeOutForCommitPhase)
       context.become(commitPhase, discardOld = true)
@@ -127,6 +168,9 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
   val commitAcknowledgementsReceived: mutable.Set[AccountId] = mutable.Set[AccountId]()
 
   def commitPhase: Receive = {
+
+    case GetTransactionStatus =>
+      sender ! TransactionStatus(TransactionStatusTable.InProgress)
 
     case AckCommit(accountId) =>
       commitAcknowledgementsReceived += accountId
@@ -149,6 +193,9 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
 
   def finalizing: Receive = {
 
+    case GetTransactionStatus =>
+      sender() ! TransactionStatus(TransactionStatusTable.InProgress)
+
     case StartFinalize =>
       persistAsync(Finalizing()) {
         e => onEvent(e)
@@ -162,8 +209,9 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
 
     case Check =>
       if (ackFinalized.size == 2) {
-        replyTo ! Accepted(moneyTransaction.transactionId)
-        context.stop(self)
+        replyTo.foreach(_ ! Accepted(moneyTransaction.transactionId))
+        success = true
+        context.become(done)
       }
   }
 
@@ -171,9 +219,12 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
 
   def rollingBack: Receive = {
 
+    case GetTransactionStatus =>
+      sender() ! TransactionStatus(TransactionStatusTable.InProgress)
+
     case StartRollback =>
-      deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.sourceAccountId, moneyTransaction.transactionId, id))
-      deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.destinationAccountId, moneyTransaction.transactionId, id))
+      deliver(accountsShardRegion.path)((id: Long) => Rollback(moneyTransaction.sourceAccountId, moneyTransaction.transactionId, id))
+      deliver(accountsShardRegion.path)((id: Long) => Rollback(moneyTransaction.destinationAccountId, moneyTransaction.transactionId, id))
       persistAsync(Rollingback())(_ => ())
 
     case ackRollback@AckRollback(_, _) =>
@@ -184,10 +235,26 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
 
     case Check =>
       if (ackRollBacked.size == 2) {
-        replyTo ! Rejected(moneyTransaction.transactionId)
-        context.stop(self)
+        replyTo.foreach(_ ! Rejected(moneyTransaction.transactionId))
+        success = false
+        context.become(done)
       }
   }
+
+  def done: Receive = {
+
+    case GetTransactionStatus =>
+      if (success) sender() ! TransactionStatus(TransactionStatusTable.Success) else
+        sender() ! TransactionStatus(TransactionStatusTable.Failed)
+
+    case ReceiveTimeout => context.parent ! Passivate(stopMessage = Stop)
+
+    case Stop => context.stop(self)
+
+  }
+
+
+
 
   def onEvent(e: Any): Unit = e match {
 
@@ -196,8 +263,8 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
 
     case f: Finalizing =>
       phase = Phases.Finalizing
-      deliver(shardedAccounts.path)((id: Long) => Finalize(moneyTransaction.sourceAccountId, moneyTransaction.transactionId, id))
-      deliver(shardedAccounts.path)((id: Long) => Finalize(moneyTransaction.destinationAccountId, moneyTransaction.transactionId, id))
+      deliver(accountsShardRegion.path)((id: Long) => Finalize(moneyTransaction.sourceAccountId, moneyTransaction.transactionId, id))
+      deliver(accountsShardRegion.path)((id: Long) => Finalize(moneyTransaction.destinationAccountId, moneyTransaction.transactionId, id))
 
     case AckFinalize(accountId, deliveryId) =>
       confirmDelivery(deliveryId)
@@ -209,8 +276,8 @@ class Coordinator(shardedAccounts: ActorRef) extends PersistentActor with ActorL
 
     case r: Rollingback =>
       phase = Phases.Rollingback
-      deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.sourceAccountId, moneyTransaction.transactionId, id))
-      deliver(shardedAccounts.path)((id: Long) => Rollback(moneyTransaction.destinationAccountId, moneyTransaction.transactionId, id))
+      deliver(accountsShardRegion.path)((id: Long) => Rollback(moneyTransaction.sourceAccountId, moneyTransaction.transactionId, id))
+      deliver(accountsShardRegion.path)((id: Long) => Rollback(moneyTransaction.destinationAccountId, moneyTransaction.transactionId, id))
 
   }
 

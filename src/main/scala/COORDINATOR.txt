@@ -1,0 +1,32 @@
+akka.yaml
+
+
+
+                                                           ┌────────────────────┐
+        ┌──────────────┐                                   │   COMMIT_TIMEOUT   │
+        │     Mark     │                                   │    active here     │
+        │ transaction  │    success                        └────────────────────┘
+        │   start to   │──────────────────────┐                       ▲
+        │   journal    │                      │                       │
+        └──────────────┘                      ▼                       │
+                ▲                    ┌────────────────┐      ┌────────────────┐        ┌───────────────┐
+                │                    │                │      │    Wait for    │        │ Send Rollback │
+        At the  │                    │  Send Commit   │      │participants to │        │ message (with │
+      same time │                    │message to every│─────▶│acknowledge the │───────▶│ at least once │
+                │                    │  participant   │      │     Commit     │        │   delivery)   │
+                │                    │                │      │                │        │               │
+                ▼                    └────────────────┘      └────────────────┘        └───────────────┘
+        ┌──────────────┐                      ▲                       │
+        │     Ask      │     all votes        │                       │
+        │ Participants │        Yes           │                   acks from
+        │   to Vote    │──────────┬───────────┘                 participants
+        │              │          │                                   │
+        └──────────────┘          │                                   │
+                                  │                                   ▼
+                                  ▼                           ┌───────────────┐
+                      ┌───────────────────────┐               │ Send Finalize │
+                      │                       │               │ message (with │
+                      │ VOTING_TIMEOUT active │               │ at least once │
+                      │         here          │               │   delivery)   │
+                      │                       │               │               │
+                      └───────────────────────┘               └───────────────┘

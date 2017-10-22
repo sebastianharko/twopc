@@ -5,50 +5,27 @@ import akka.cluster.sharding.ShardRegion.{ExtractEntityId, ExtractShardId, Passi
 import akka.cluster.sharding.{ClusterSharding, ClusterShardingSettings}
 import akka.persistence.{PersistentActor, RecoveryCompleted, ReplyToStrategy, StashOverflowStrategy}
 import app.messages._
-import com.lightbend.cinnamon.metric.{Counter, Rate}
 
+import scala.concurrent.duration._
 
 /*
 
 
-                                                                                    +----------------------------+
-                                    +--------------+                                | mark the                   |
-   +-------------+  Votes yes       |              |                                - transaction                |
-   |             |  on transaction  |  Read Only   |                               /| as finalized in the journal|
-   |   Account   --------------------   Account    |                              / +----------------------------+
-   |             |                  |              |        +---------------+    /
-   +------|------+                  |              |        |               |   /
-          |                         +-------|------+        |  Waiting for  |  /
-          |                                 |               |  Rollback     | /
-          |                                 |               |  or           |/
-          |                                 |               |  Finalize     |\
-          |                                 |               |               | \
-          |                                 |               +-------|-------+  \
-          | on timeout              +-------|------+                |           \  +----------------------------+
-          | or abort                |              |                |            \ |                            |
-          |                         |  Waiting for |                |             \| write to the journal       |
-          |                         |  Commit      |                |              - a counter event            |
-          +--------------------------  or          |                |              +----------------------------+
-                                    |  Abort       |     ack the    |
-                                    |              |     commit     |
-                                    +-------------------------------+
-                                                     write  to the journal
-                                                     (transaction, event)
-
+See ACCOUNT.txt for the state machine diagram
 
 
  */
 
-import scala.concurrent.duration._
 
-object Sharding {
+object AccountActor {
 
   val PassivateAfter: Int = sys.env.get("PASSIVATE_ACCOUNT").map(_.toInt).getOrElse(3 * 60) // ms
+  val CommitOrAbortTimeout: FiniteDuration = sys.env.get("ACCOUNT_TIMEOUT").map(_.toInt).map(_ milliseconds).getOrElse(600 milliseconds)
 
-  val NumShards: Int = sys.env.get("NUM_SHARDS").map(_.toInt).getOrElse(100)
+  val NumShards: Int = sys.env.get("NUM_SHARDS_ACCOUNTS").map(_.toInt).getOrElse(100)
 
   val extractEntityId: ExtractEntityId = {
-    case c @ ChangeBalance(accountId, _) => (accountId, c)
+    case c @ ChangeBalance(accountId, _, _) => (accountId, c)
     case c @ GetBalance(accountId) => (accountId, c)
     case c @ IsLocked(accountId) => (accountId, c)
     case c @ Vote(accountId, _, _, _, _) => (accountId, c)
@@ -60,7 +37,7 @@ object Sharding {
 
   import Math.abs
   val extractShardId: ExtractShardId = {
-    case ChangeBalance(accountId, _) => (abs(accountId.hashCode) % NumShards).toString
+    case ChangeBalance(accountId, _, _) => (abs(accountId.hashCode) % NumShards).toString
     case GetBalance(accountId) => (abs(accountId.hashCode) % NumShards).toString
     case IsLocked(accountId) => (abs(accountId.hashCode) % NumShards).toString
     case Vote(accountId, _, _, _, _) => (abs(accountId.hashCode) % NumShards).toString
@@ -70,18 +47,20 @@ object Sharding {
     case Finalize(accountId, _, _) => (abs(accountId.hashCode) % NumShards).toString
   }
 
-  def accounts(system: ActorSystem): ActorRef = ClusterSharding(system).start(
+  def accountsShardRegion(system: ActorSystem): ActorRef = ClusterSharding(system).start(
     typeName = "Account",
     entityProps = Props(new AccountActor()).withMailbox("stash-capacity-mailbox"),
     settings = ClusterShardingSettings(system),
     extractEntityId = extractEntityId,
     extractShardId = extractShardId)
-}
 
+  def proxyToShardRegion(system: ActorSystem): ActorRef = ClusterSharding(system).startProxy(
+    typeName = "Account",
+    role = None,
+    extractEntityId = extractEntityId,
+    extractShardId = extractShardId
+  )
 
-object AccountActor {
-
-  val CommitOrAbortTimeout: FiniteDuration = sys.env.get("ACCOUNT_TIMEOUT").map(_.toInt).map(_ milliseconds).getOrElse(600 milliseconds)
 
 }
 
@@ -91,7 +70,7 @@ class AccountActor() extends PersistentActor with ActorLogging with Timers with 
 
   override def internalStashOverflowStrategy: StashOverflowStrategy = ReplyToStrategy(AccountStashOverflow(accountId))
 
-  context.setReceiveTimeout(Sharding.PassivateAfter.seconds)
+  context.setReceiveTimeout(AccountActor.PassivateAfter.seconds)
 
   override def persistenceId: String = self.path.name
 
@@ -105,7 +84,7 @@ class AccountActor() extends PersistentActor with ActorLogging with Timers with 
 
   def validate(e: Any): Boolean = {
     e match {
-      case ChangeBalance(_, byAmount) => activeBalance + byAmount >= 0
+      case ChangeBalance(_, byAmount, _) => activeBalance + byAmount >= 0
     }
   }
 
@@ -172,16 +151,16 @@ class AccountActor() extends PersistentActor with ActorLogging with Timers with 
     case Stop => context.stop(self)
   }
 
-  var replyTo: ActorRef = _ // for ChangeBalance
+  var replyTo: Option[ActorRef] = None // for ChangeBalance
   def canChangeBalance: Receive = {
-    case c @ ChangeBalance(_, m) if validate(c) =>
-      replyTo = sender()
+    case c @ ChangeBalance(_, m, respond) if validate(c) =>
+      replyTo = if (respond) Some(sender()) else None
       context.become(whileChangingBalance, discardOld = true)
       persistAsync(BalanceChanged(m)) {
         e => {
           onEvent(e)
           activeBalance = balance
-          replyTo ! Accepted("na")
+          replyTo.foreach(_ ! Accepted("na"))
           unstashAll()
           context.become(receiveCommand, discardOld = true)
         }

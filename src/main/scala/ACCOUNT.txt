@@ -1,0 +1,54 @@
+
+
+
+
+   ┌──────────────┐                       ┌──────────────┐
+   │              │       votes Yes       │  Read Only   │
+   │   Account    │──────────on a ───────▶│   Account    │
+   │              │       transaction     │              │
+   └──────────────┘                       └──────────────┘
+           ▲                                      │
+           │                                      │
+           │                             ACCOUNT_TIMEOUT is
+           │                                   active
+           │                                      │
+           │                                      │                            ┌────────────────┐
+           │                                      ▼                            │Mark transaction│
+           │                              ┌──────────────┐                     │  start in the  │       ┌──────────────┐
+           │       Timeout /              │ Waiting for  │    Receive          │ journal. Write │       │ Acknowledge  │
+           └─────────Abort────────────────│  commit or   │────┬Commit─────────▶│  domain event  │──────▶│ the commit.  │
+                                          │    abort     │    │                │     (i.e.      │       │              │
+                                          └──────────────┘    │                │BalanceChanged) │       └──────────────┘
+                                                              │                └────────────────┘               │
+                                                        ┌─────┘                                                 │
+                                                        │                                                       │
+                                                        │                                                       │
+                                                        │                                            WARNING:   │
+                                                        ▼                                             locked    │
+                                                                                                   indefinitely │
+                                              Basically means that                                              │
+                                              the coordinator has                                               │
+                                             received yes from the                                              ▼
+                                               other participants                                       ┌──────────────┐
+                                                                                                        │ Waiting for  │
+                                                                                                        │ Rollback or  │───────┐
+                                                                                                        │   Finalize   │      on
+                                                                                                        └──────────────┘   Rollback
+                                                                                                                │              │
+                                                                                                               on              │
+                                                                                                            Finalize           ▼
+                                                                                                                │        ┌───────────┐
+                                                                                                                │        │   Write   │
+                                                                                                                │        │  counter  │
+                                                                                                                │        │   event   │
+                                                                                                                │        └───────────┘
+                                                                                                                │              │
+                                                                                                                │              │
+                                                                                                                ▼              │
+                                                                                                       ┌─────────────────┐     │
+                                                                                                       │                 │     │
+                                                                                                       │Mark transaction │     │
+                                                                                                       │(in the journal) │◀────┘
+                                                                                                       │    as ended     │
+                                                                                                       │                 │
+                                                                                                       └─────────────────┘

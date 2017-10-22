@@ -1,21 +1,17 @@
 package app
 
-import akka.actor.{Actor, ActorRef, ActorSystem, Props, Timers}
-import akka.cluster.sharding.ShardRegion
-import akka.cluster.sharding.ShardRegion.CurrentShardRegionState
+import akka.actor.{ActorRef, ActorSystem}
+import akka.cluster.Cluster
 import akka.event.Logging
 import akka.http.scaladsl.Http
+import akka.http.scaladsl.model.StatusCodes
 import akka.http.scaladsl.server.Directives.{complete, get, path, post, _}
 import akka.pattern.ask
 import akka.stream.ActorMaterializer
-import com.lightbend.cinnamon.akka.CinnamonMetrics
-import com.lightbend.cinnamon.akka.http.scaladsl.server.Endpoint
-import com.lightbend.cinnamon.metric._
+import app.messages._
 
 import scala.concurrent.duration._
 import scala.language.postfixOps
-
-import app.messages._
 
 class Main
 
@@ -25,84 +21,122 @@ object Main extends App {
 
   val logging = Logging(system, classOf[Main])
 
+  if (Cluster(system).selfRoles.contains("ACCOUNT")) {
+    logging.info(
+      """
+        |    ___       ______   ______   ______    __    __  .__   __. .___________.    _______.
+        |    /   \     /      | /      | /  __  \  |  |  |  | |  \ |  | |           |   /       |
+        |   /  ^  \   |  ,----'|  ,----'|  |  |  | |  |  |  | |   \|  | `---|  |----`  |   (----`
+        |  /  /_\  \  |  |     |  |     |  |  |  | |  |  |  | |  . `  |     |  |        \   \
+        | /  _____  \ |  `----.|  `----.|  `--'  | |  `--'  | |  |\   |     |  |    .----)   |
+        |/__/     \__\ \______| \______| \______/   \______/  |__| \__|     |__|    |_______/
+        |
+        |
+        |
+      """.stripMargin)
 
-  val accounts = Sharding.accounts(system)
+    logging.info("NUM_SHARDS_ACCOUNTS is {}", AccountActor.NumShards)
+    logging.info("PASSIVATE_ACCOUNT is {}", AccountActor.PassivateAfter)
+    logging.info("ACCOUNT_TIMEOUT is {}", AccountActor.CommitOrAbortTimeout._1)
 
-  implicit val materializer = ActorMaterializer()
+    AccountActor.accountsShardRegion(system)
 
-  val StandardTimeout = sys.env.get("HTTP_TIMEOUT").map(_.toLong milliseconds).getOrElse(1500 milliseconds)
-  implicit val standardTimeout = akka.util.Timeout(StandardTimeout)
+  } else if (Cluster(system).selfRoles.contains("COORDINATOR")) {
+    logging.info(
+      """
+        |  ______   ______     ______   .______       _______   __  .__   __.      ___   .___________.  ______   .______          _______.
+        | /      | /  __  \   /  __  \  |   _  \     |       \ |  | |  \ |  |     /   \  |           | /  __  \  |   _  \        /       |
+        ||  ,----'|  |  |  | |  |  |  | |  |_)  |    |  .--.  ||  | |   \|  |    /  ^  \ `---|  |----`|  |  |  | |  |_)  |      |   (----`
+        ||  |     |  |  |  | |  |  |  | |      /     |  |  |  ||  | |  . `  |   /  /_\  \    |  |     |  |  |  | |      /        \   \
+        ||  `----.|  `--'  | |  `--'  | |  |\  \----.|  '--'  ||  | |  |\   |  /  _____  \   |  |     |  `--'  | |  |\  \----.----)   |
+        | \______| \______/   \______/  | _| `._____||_______/ |__| |__| \__| /__/     \__\  |__|      \______/  | _| `._____|_______/
+        |
+        |
+        |
+      """.stripMargin)
 
-  val QueryTimeout = sys.env.get("QUERY_HTTP_TIMEOUT").map(_.toLong milliseconds).getOrElse(350 milliseconds)
-  val queryTimeout = akka.util.Timeout(QueryTimeout)
+    logging.info("NUM_SHARDS_COORD is {}", Coordinator.NumShards)
+    logging.info("PASSIVATE_COORD is {}", Coordinator.PassivateAfter)
+    logging.info("VOTING_TIMEOUT is {}", Coordinator.TimeOutForVotingPhase._1)
+    logging.info("COMMIT_TIMEOUT is {}", Coordinator.TimeOutForCommitPhase._1)
 
-  logging.info("PASSIVATE_ACCOUNT is {}", Sharding.PassivateAfter)
-  logging.info("NUM_SHARDS is {}", Sharding.NumShards)
-  logging.info("HTTP_TIMEOUT is {}", StandardTimeout._1)
-  logging.info("QUERY_HTTP_TIMEOUT is {}", QueryTimeout._1)
-  logging.info("ACCOUNT_TIMEOUT is {}", AccountActor.CommitOrAbortTimeout._1)
-  logging.info("VOTING_TIMEOUT is {}", Coordinator.TimeOutForVotingPhase._1)
-  logging.info("COMMIT_TIMEOUT is {}", Coordinator.TimeOutForCommitPhase._1)
+    val proxyToAccounts: ActorRef = AccountActor.proxyToShardRegion(system)
+    Coordinator.coordinatorShardRegion(system, proxyToAccounts)
 
-  object B1 {
-    implicit val blockingDispatcher1 = system.dispatchers.lookup("my-blocking-dispatcher-1")
-  }
+  } else if (Cluster(system).selfRoles.contains("HTTP")) {
+    logging.info(
+      """
+        | __    __  .___________.___________..______
+        ||  |  |  | |           |           ||   _  \
+        ||  |__|  | `---|  |----`---|  |----`|  |_)  |
+        ||   __   |     |  |        |  |     |   ___/
+        ||  |  |  |     |  |        |  |     |  |
+        ||__|  |__|     |__|        |__|     | _|
+        |
+        |
+      """.stripMargin)
 
-  object B2 {
-   implicit val blockingDispatcher1 = system.dispatchers.lookup("my-blocking-dispatcher-2")
-  }
 
-  val route = path("query" / Segment) {
-    accountId => {
-      get {
-        Endpoint.withName("CustomerAccount") {
+
+    val StandardTimeout = sys.env.get("HTTP_TIMEOUT").map(_.toLong milliseconds).getOrElse(150 milliseconds)
+    val standardTimeout = akka.util.Timeout(StandardTimeout)
+
+    val QueryTimeout = sys.env.get("QUERY_HTTP_TIMEOUT").map(_.toLong milliseconds).getOrElse(350 milliseconds)
+    val queryTimeout = akka.util.Timeout(QueryTimeout)
+
+
+    logging.info("HTTP_TIMEOUT is {}", StandardTimeout._1)
+    logging.info("QUERY_HTTP_TIMEOUT is {}", QueryTimeout._1)
+
+    val proxyToAccounts: ActorRef = AccountActor.proxyToShardRegion(system)
+    val proxyToCoordinators: ActorRef = Coordinator.proxyToShardRegion(system)
+    val accounts = proxyToAccounts
+    val coordinators = proxyToCoordinators
+
+    implicit val materializer: ActorMaterializer = ActorMaterializer()
+
+    import system.dispatcher
+
+    val route = path("query" / Segment) {
+      accountId => {
+        get {
           complete {
-            import B2.blockingDispatcher1
-            accounts.ask(GetBalance(accountId))(queryTimeout, ActorRef.noSender).mapTo[Int].map((r: Int) => r.toString)
+            proxyToAccounts.ask(GetBalance(accountId))(queryTimeout, ActorRef.noSender).mapTo[Int].map((r: Int) => r.toString)
           }
         }
       }
-    }
-  } ~ path("deposit" /  Segment / IntNumber) {
+    } ~ path("deposit" / Segment / IntNumber) {
       case (accountId, amount) =>
         post {
           complete {
-            import B1.blockingDispatcher1
-            (accounts ? ChangeBalance(accountId, amount)).map {
-              case Accepted(_) => "true"
-              case Rejected(_) => "false"
-              case AccountStashOverflow(_) => "false"
-            }
+            accounts ! ChangeBalance(accountId, amount)
+            StatusCodes.Accepted
           }
+        }
+    } ~ path("withdraw" / Segment / IntNumber) {
+      case (accountId, amount) =>
+        post {
+          complete {
+            accounts ! ChangeBalance(accountId, -amount)
+            StatusCodes.Accepted
           }
-  } ~ path("withdraw" / Segment / IntNumber) {
-     case (accountId, amount) =>
-       post {
-         complete {
-           import B1.blockingDispatcher1
-           (accounts ? ChangeBalance(accountId, - amount)).map {
-             case Accepted(_) => "true"
-             case Rejected(_) => "false"
-           } }
-         }
-  } ~ path("transaction" / Segment / Segment / Segment / IntNumber) {
-    case (transactionId, sourceAccountId, destinationAccountId, amount) => {
-      post {
-        complete {
-          val coordinator = system.actorOf(Props(new Coordinator(accounts)), transactionId)
-          import B1.blockingDispatcher1
-          (coordinator ? MoneyTransaction(transactionId, sourceAccountId, destinationAccountId, amount)).map {
-            case Accepted(_) => "true"
-            case Rejected(_) => "false"
+        }
+    } ~ path("transaction" / Segment / Segment / Segment / IntNumber) {
+      case (transactionId, sourceAccountId, destinationAccountId, amount) => {
+        post {
+          complete {
+            coordinators ! MoneyTransaction(transactionId, sourceAccountId, destinationAccountId, amount, false)
+            StatusCodes.Accepted
           }
-
         }
       }
+
     }
 
-  }
+    val bindingFuture = Http().bindAndHandle(route, scala.sys.env.getOrElse("POD_IP", "0.0.0.0"), 8080)
 
-  val bindingFuture = Http().bindAndHandle(route, scala.sys.env.getOrElse("POD_IP", "0.0.0.0"), 8080)
+
+  }
 
 
 }
