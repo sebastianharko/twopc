@@ -7,8 +7,9 @@ kubectl create -f cassandra-statefulset.yaml
 sleep 80
 echo "Deploying akka cluster"
 kubectl create -f akka-accounts.yaml
-sleep 20
+sleep 30
 kubectl create -f akka-coordinators.yaml
+sleep 30
 kubectl create -f akka-http.yaml
 sleep 10
 kubectl create -f akka-service.yaml
