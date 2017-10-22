@@ -19,8 +19,5 @@
         <appender-ref ref="STDOUT"/>
     </root>
 
-    <root level="DEBUG">
-        <appender-ref ref="FILE" />
-    </root>
 
 </configuration>
