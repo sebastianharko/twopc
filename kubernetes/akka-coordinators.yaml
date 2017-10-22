@@ -15,7 +15,9 @@ spec:
         image: sebastianharko/2pc:6.2
         imagePullPolicy: Always
         env:
-        - name: ROLE1
+        - name: ROLE
+          value: "COORDINATOR"
+        - name: SHARD_ROLE
           value: "COORDINATOR"
         - name: CASS
           value: "cassandra-0.cassandra.default.svc.cluster.local"
