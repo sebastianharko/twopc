@@ -41,7 +41,9 @@ object Main extends App {
 
     AccountActor.accountsShardRegion(system)
 
-  } else if (Cluster(system).selfRoles.contains("COORDINATOR")) {
+  }
+
+  if (Cluster(system).selfRoles.contains("COORDINATOR")) {
     logging.info(
       """
         |  ______   ______     ______   .______       _______   __  .__   __.      ___   .___________.  ______   .______          _______.
@@ -63,7 +65,9 @@ object Main extends App {
     val proxyToAccounts: ActorRef = AccountActor.proxyToShardRegion(system)
     Coordinator.coordinatorShardRegion(system, proxyToAccounts)
 
-  } else if (Cluster(system).selfRoles.contains("HTTP")) {
+  }
+
+  if (Cluster(system).selfRoles.contains("HTTP")) {
     logging.info(
       """
         | __    __  .___________.___________..______
@@ -141,7 +145,6 @@ object Main extends App {
     }
 
     val bindingFuture = Http().bindAndHandle(route, scala.sys.env.getOrElse("POD_IP", "0.0.0.0"), 8080)
-
 
   }
 
