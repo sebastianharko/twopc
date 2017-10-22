@@ -9,6 +9,11 @@ kubectl delete deployment twopc
 kubectl delete deployment cassandra
 kubectl delete deployment etcd
 kubectl delete deployment ggs
+kubectl delete deployment web
+kubectl delete deployment coordinator
+kubectl delete deployment coordinators
+kubectl delete deployment account
+kubectl delete deployment accounts
 kubectl delete StorageClass fast
 kubectl delete StatefulSet cassandra
 kubectl delete PersistentVolumeClaim cassandra-data-cassandra-0
