@@ -1,5 +1,7 @@
 package app
 
+import java.util.concurrent.Executors
+
 import akka.actor.{ActorRef, ActorSystem}
 import akka.cluster.Cluster
 import akka.event.Logging
@@ -10,6 +12,7 @@ import akka.pattern.ask
 import akka.stream.ActorMaterializer
 import app.messages._
 
+import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.language.postfixOps
 
@@ -99,12 +102,16 @@ object Main extends App {
 
     implicit val materializer: ActorMaterializer = ActorMaterializer()
 
-    import system.dispatcher
+    object Dispatchers {
+      implicit val blockingDispatcher1 = system.dispatchers.lookup("my-blocking-dispatcher-1")
+      implicit val blockingDispatcher2 = system.dispatchers.lookup("my-blocking-dispatcher-2")
+    }
 
     val route = path("query" / Segment) {
       accountId => {
         get {
           complete {
+            import Dispatchers.blockingDispatcher1
             proxyToAccounts.ask(GetBalance(accountId))(queryTimeout, ActorRef.noSender).mapTo[Balance].map((r: Balance) => r.amount.toString)
           }
         }
@@ -138,6 +145,7 @@ object Main extends App {
       case transactionId => {
         get {
           complete {
+            import Dispatchers.blockingDispatcher2
             proxyToCoordinators.ask(GetTransactionStatus(transactionId))(queryTimeout, ActorRef.noSender).mapTo[TransactionStatus]
                 .map((t) => TransactionStatusTable.toString(t.status))
           }
@@ -145,6 +153,7 @@ object Main extends App {
       }
     }
 
+    import system.dispatcher
     val bindingFuture = Http().bindAndHandle(route, scala.sys.env.getOrElse("POD_IP", "0.0.0.0"), 8080)
 
   }

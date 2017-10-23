@@ -16,7 +16,7 @@ docker run \
   quay.io/coreos/etcd:v2.3.7 \
   --listen-client-urls http://0.0.0.0:2379 \
   --advertise-client-urls http://192.168.99.100:2379
-export ROLE1=HTTP
-export ROLE2=ACCOUNT
-export ROLE3=COORDINATOR
+export ROLE=ACCOUNT
+export SHARD_ROLE=ACCOUNT
+sbt clean
 sbt run
