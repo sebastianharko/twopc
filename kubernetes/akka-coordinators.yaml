@@ -12,7 +12,7 @@ spec:
     spec:
       containers:
       - name: twopc
-        image: sebastianharko/2pc:6.7
+        image: sebastianharko/2pc:6.8
         imagePullPolicy: Always
         env:
         - name: ROLE
