@@ -105,6 +105,7 @@ object Main extends App {
     object Dispatchers {
       implicit val blockingDispatcher1 = system.dispatchers.lookup("my-blocking-dispatcher-1")
       implicit val blockingDispatcher2 = system.dispatchers.lookup("my-blocking-dispatcher-2")
+      implicit val akkaHttpDispatcher = system.dispatchers.lookup("akka-http-dispatcher")
     }
 
     val route = path("query" / Segment) {
@@ -153,7 +154,7 @@ object Main extends App {
       }
     }
 
-    import system.dispatcher
+    import Dispatchers.akkaHttpDispatcher
     val bindingFuture = Http().bindAndHandle(route, scala.sys.env.getOrElse("POD_IP", "0.0.0.0"), 8080)
 
   }
