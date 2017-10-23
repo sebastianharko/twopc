@@ -1,7 +1,5 @@
 package app
 
-import java.util.concurrent.Executors
-
 import akka.actor.{ActorRef, ActorSystem}
 import akka.cluster.Cluster
 import akka.event.Logging
@@ -9,10 +7,9 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.StatusCodes
 import akka.http.scaladsl.server.Directives.{complete, get, path, post, _}
 import akka.pattern.ask
-import akka.stream.ActorMaterializer
+import akka.stream.{ActorMaterializer, ActorMaterializerSettings}
 import app.messages._
 
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.language.postfixOps
 
@@ -100,19 +97,14 @@ object Main extends App {
     val accounts = proxyToAccounts
     val coordinators = proxyToCoordinators
 
-    implicit val materializer: ActorMaterializer = ActorMaterializer()
+    implicit val materializer: ActorMaterializer = ActorMaterializer(ActorMaterializerSettings(system).withDispatcher("akka-http-dispatcher"))
 
-    object Dispatchers {
-      implicit val blockingDispatcher1 = system.dispatchers.lookup("my-blocking-dispatcher-1")
-      implicit val blockingDispatcher2 = system.dispatchers.lookup("my-blocking-dispatcher-2")
-      implicit val akkaHttpDispatcher = system.dispatchers.lookup("akka-http-dispatcher")
-    }
+    import system.dispatcher
 
     val route = path("query" / Segment) {
       accountId => {
         get {
           complete {
-            import Dispatchers.blockingDispatcher1
             proxyToAccounts.ask(GetBalance(accountId))(queryTimeout, ActorRef.noSender).mapTo[Balance].map((r: Balance) => r.amount.toString)
           }
         }
@@ -146,7 +138,6 @@ object Main extends App {
       case transactionId => {
         get {
           complete {
-            import Dispatchers.blockingDispatcher2
             proxyToCoordinators.ask(GetTransactionStatus(transactionId))(queryTimeout, ActorRef.noSender).mapTo[TransactionStatus]
                 .map((t) => TransactionStatusTable.toString(t.status))
           }
@@ -154,7 +145,6 @@ object Main extends App {
       }
     }
 
-    import Dispatchers.akkaHttpDispatcher
     val bindingFuture = Http().bindAndHandle(route, scala.sys.env.getOrElse("POD_IP", "0.0.0.0"), 8080)
 
   }
