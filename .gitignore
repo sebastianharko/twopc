@@ -3,4 +3,5 @@ project/project/
 project/target/
 target/
 log.txt
-ddata-minimal-replicator-2551/
+ddata-*
+akka-diagnostics

@@ -143,6 +143,12 @@ object Main extends App {
           }
         }
       }
+    } ~ path("ping") {
+      get {
+        complete {
+          "pong"
+        }
+      }
     }
 
     val bindingFuture = Http().bindAndHandle(route, scala.sys.env.getOrElse("POD_IP", "0.0.0.0"), 8080)
