@@ -43,7 +43,7 @@ class Ping extends Simulation {
   val time = sys.env.get("PERIOD").map(_.toInt).getOrElse(10)
 
   val scn1: ScenarioBuilder = scenario("Ping")
-      .exec(http("ping").post(s"http://$host/ping"))
+      .exec(http("ping").get(s"http://$host/ping"))
 
   val httpConf: HttpProtocolBuilder = http
 
