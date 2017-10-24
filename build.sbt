@@ -41,6 +41,7 @@ libraryDependencies += "com.typesafe.akka" %% "akka-persistence-cassandra" % "0.
 
 libraryDependencies += "com.lightbend.akka" %% "akka-diagnostics" % "1.0.3"
 
+libraryDependencies += Cinnamon.library.cinnamonOpenTracingJaeger
 
 // Use Coda Hale Metrics
 libraryDependencies += Cinnamon.library.cinnamonCHMetricsStatsDReporter
