@@ -13,7 +13,7 @@ import scala.concurrent.duration._
 import scala.language.postfixOps
 
 
-class TestCoordinatorSharding extends TestKit(ActorSystem("minimal")) with WordSpecLike
+class TestCoordinatorSharding extends TestKit(ActorSystem("bank")) with WordSpecLike
     with ImplicitSender with BeforeAndAfterAll {
 
   override def afterAll {
@@ -21,13 +21,11 @@ class TestCoordinatorSharding extends TestKit(ActorSystem("minimal")) with WordS
   }
 
   val accounts: ActorRef = AccountActor.accountsShardRegion(system)
-  val proxyToAccounts: ActorRef = AccountActor.proxyToShardRegion(system)
 
   val fakeRate: Rate = CinnamonMetrics(system).createRate("fakeRate")
   val fakeCounter: Counter = CinnamonMetrics(system).createCounter("fakeCounter")
 
-  val coordinators: ActorRef = Coordinator.coordinatorShardRegion(system, proxyToAccounts)
-  val proxyToCoordinators: ActorRef = Coordinator.proxyToShardRegion(system)
+  val coordinators: ActorRef = Coordinator.coordinatorShardRegion(system, accounts)
 
   "sharding of coordinators" must {
 
@@ -57,38 +55,12 @@ class TestCoordinatorSharding extends TestKit(ActorSystem("minimal")) with WordS
       expectMsg(Balance(100))
     }
 
-    "function normally (even when using a proxy)" in {
-
-      val id = java.util.UUID.randomUUID().toString
-      accounts ! ChangeBalance("P1", +100, true)
-      expectMsg(Accepted("na"))
-      accounts ! ChangeBalance("Q1", +50, true)
-      expectMsg(Accepted("na"))
-
-      Thread.sleep(100)
-
-      accounts ! GetBalance("P1")
-      expectMsg(3 seconds, "initially P1 should be 100", Balance(100))
-
-      accounts ! GetBalance("Q1")
-      expectMsg(3 seconds, "initially Q1 should be 50", Balance(50))
-
-      proxyToCoordinators ! MoneyTransaction(id, "P1", "Q1", 50, true)
-      expectMsgClass(classOf[Accepted])
-
-      accounts ! GetBalance("P1")
-      expectMsg(Balance(50))
-
-      accounts ! GetBalance("Q1")
-      expectMsg(Balance(100))
-    }
-
   }
 
 }
 
 
-class TestAccountSharding extends TestKit(ActorSystem("minimal")) with WordSpecLike
+class TestAccountSharding extends TestKit(ActorSystem("bank")) with WordSpecLike
     with ImplicitSender with BeforeAndAfterAll {
 
   override def afterAll {
@@ -99,7 +71,6 @@ class TestAccountSharding extends TestKit(ActorSystem("minimal")) with WordSpecL
   val fakeCounter: Counter = CinnamonMetrics(system).createCounter("fakeCounter")
 
   val accounts: ActorRef = AccountActor.accountsShardRegion(system)
-  val proxyToAccounts: ActorRef = AccountActor.proxyToShardRegion(system)
 
   "sharding of accounts" must {
 
@@ -128,36 +99,11 @@ class TestAccountSharding extends TestKit(ActorSystem("minimal")) with WordSpecL
 
     }
 
-    "function normally (even when using a proxy)" in {
-
-      proxyToAccounts ! GetBalance("73")
-      expectMsg(Balance(0))
-
-      proxyToAccounts ! ChangeBalance("73", 50, true)
-      expectMsg(Accepted("na"))
-
-      proxyToAccounts ! ChangeBalance("73", -50, true)
-      expectMsg(Accepted("na"))
-
-      proxyToAccounts ! ChangeBalance("73", 25, true)
-      expectMsg(Accepted("na"))
-
-      proxyToAccounts ! GetBalance("73")
-      expectMsg(Balance(25))
-
-      proxyToAccounts ! IsLocked("73")
-      expectMsg(false)
-
-      proxyToAccounts ! ChangeBalance("73", 100, false)
-      expectNoMsg(3 seconds)
-
-    }
-
   }
 
 }
 
-class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpecLike
+class TestSimpleAccountOps extends TestKit(ActorSystem("bank")) with WordSpecLike
     with ImplicitSender with BeforeAndAfterAll {
 
   override def afterAll {
@@ -413,7 +359,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("minimal")) with WordSpec
 
 }
 
-class TestCoordinator extends TestKit(ActorSystem("minimal")) with WordSpecLike
+class TestCoordinator extends TestKit(ActorSystem("bank")) with WordSpecLike
     with ImplicitSender with BeforeAndAfterAll {
 
   override def afterAll {

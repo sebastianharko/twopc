@@ -64,11 +64,11 @@ object Coordinator {
 
   val NumShards: Int = sys.env.get("NUM_SHARDS_COORD").map(_.toInt).getOrElse(100)
 
-  val PassivateAfter: Int = sys.env.get("PASSIVATE_COORD").map(_.toInt).getOrElse(10)
+  val PassivateAfter: Int = sys.env.get("PASSIVATE_COORD").map(_.toInt).getOrElse(60)
 
-  val TimeOutForVotingPhase: FiniteDuration = sys.env.get("VOTING_TIMEOUT").map(_.toLong milliseconds).getOrElse(600 milliseconds)
+  val TimeOutForVotingPhase: FiniteDuration = sys.env.get("VOTING_TIMEOUT").map(_.toLong milliseconds).getOrElse(2 seconds)
 
-  val TimeOutForCommitPhase: FiniteDuration = sys.env.get("COMMIT_TIMEOUT").map(_.toLong milliseconds).getOrElse(600 milliseconds)
+  val TimeOutForCommitPhase: FiniteDuration = sys.env.get("COMMIT_TIMEOUT").map(_.toLong milliseconds).getOrElse(500 milliseconds)
 
   val extractEntityId: ExtractEntityId = {
     case mt @ MoneyTransaction(transactionId, _, _, _, _) => (transactionId, mt)
@@ -81,16 +81,16 @@ object Coordinator {
   }
 
   def coordinatorShardRegion(system: ActorSystem, accountsShardRegion: ActorRef): ActorRef = ClusterSharding(system).start(
-    typeName = "TCoordinator",
+    typeName = "coordinator",
     entityProps = Props(new Coordinator(accountsShardRegion)),
     settings = ClusterShardingSettings(system),
     extractEntityId = extractEntityId,
     extractShardId = extractShardId)
 
 
-  def proxyToShardRegion(system: ActorSystem): ActorRef = ClusterSharding(system).startProxy(
-    typeName = "TCoordinator",
-    role = Some("COORDINATOR"),
+  def proxyToShardRegion(system: ActorSystem, role: Option[String] = Some("coordinator")): ActorRef = ClusterSharding(system).startProxy(
+    typeName = "coordinator",
+    role = role,
     extractEntityId = extractEntityId,
     extractShardId = extractShardId
   )
@@ -113,6 +113,7 @@ class Coordinator(accountsShardRegion: ActorRef) extends PersistentActor with Ac
   override def receiveCommand: Receive = {
 
     case ReceiveTimeout => context.parent ! Passivate(stopMessage = Stop)
+
     case Stop => context.stop(self)
 
     case GetTransactionStatus(_) =>
@@ -148,6 +149,7 @@ class Coordinator(accountsShardRegion: ActorRef) extends PersistentActor with Ac
       self ! No(someAccountId)
 
     case No(_) | TimedOut =>
+      log.info("timed out during voting phase")
       replyTo.foreach(_ ! Rejected(moneyTransaction.transactionId))
       accountsShardRegion ! Abort(moneyTransaction.destinationAccountId, moneyTransaction.transactionId)
       accountsShardRegion ! Abort(moneyTransaction.sourceAccountId, moneyTransaction.transactionId)
@@ -226,6 +228,7 @@ class Coordinator(accountsShardRegion: ActorRef) extends PersistentActor with Ac
       sender() ! TransactionStatus(TransactionStatusTable.InProgress)
 
     case StartRollback =>
+      log.info("rolling back transaction")
       deliver(accountsShardRegion.path)((id: Long) => Rollback(moneyTransaction.sourceAccountId, moneyTransaction.transactionId, id))
       deliver(accountsShardRegion.path)((id: Long) => Rollback(moneyTransaction.destinationAccountId, moneyTransaction.transactionId, id))
       persistAsync(Rollingback())(_ => ())

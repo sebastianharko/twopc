@@ -2,9 +2,9 @@
 apiVersion: extensions/v1beta1
 kind: Deployment
 metadata:
-  name: web
+  name: http-deployment
 spec:
-  replicas: 15
+  replicas: 4
   template:
     metadata:
       labels:
@@ -16,15 +16,13 @@ spec:
         imagePullPolicy: Always
         env:
         - name: ROLE
-          value: "HTTP"
+          value: "http"
         - name: SHARD_ROLE
           value: ""
-        - name: CASS
-          value: "cassandra-0.cassandra.default.svc.cluster.local"
-        - name: QUERY_HTTP_TIMEOUT
+        - name: BALANCE_QUERY_TIMEOUT
+          value: "350"
+        - name: TRANSACTION_TIMEOUT
           value: "500"
-        - name: HTTP_TIMEOUT
-          value: "300"
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -35,9 +33,9 @@ spec:
         - containerPort: 2551
         resources:
           requests:
-            cpu: 4
+            cpu: 5
             memory: 4Gi
           limits:
-            cpu: 4
+            cpu: 5
             memory: 4Gi
 

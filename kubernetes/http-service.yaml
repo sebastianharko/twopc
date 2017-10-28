@@ -2,7 +2,7 @@
 kind: Service
 apiVersion: v1
 metadata:
-  name: z
+  name: http-service
 spec:
   selector:
     app: http

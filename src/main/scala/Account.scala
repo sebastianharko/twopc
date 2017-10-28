@@ -21,9 +21,9 @@ object AccountActor {
 
   val NumShards: Int = sys.env.get("NUM_SHARDS_ACCOUNTS").map(_.toInt).getOrElse(100)
 
-  val PassivateAfter: Int = sys.env.get("PASSIVATE_ACCOUNT").map(_.toInt).getOrElse(10)
+  val PassivateAfter: Int = sys.env.get("PASSIVATE_ACCOUNT").map(_.toInt).getOrElse(120)
 
-  val CommitOrAbortTimeout: FiniteDuration = sys.env.get("ACCOUNT_TIMEOUT").map(_.toInt).map(_ milliseconds).getOrElse(600 milliseconds)
+  val CommitOrAbortTimeout: FiniteDuration = sys.env.get("ACCOUNT_TIMEOUT").map(_.toInt).map(_ milliseconds).getOrElse(2 seconds)
 
   val extractEntityId: ExtractEntityId = {
     case c @ ChangeBalance(accountId, _, _) => (accountId, c)
@@ -49,15 +49,15 @@ object AccountActor {
   }
 
   def accountsShardRegion(system: ActorSystem): ActorRef = ClusterSharding(system).start(
-    typeName = "Account",
+    typeName = "account",
     entityProps = Props(new AccountActor()).withMailbox("stash-capacity-mailbox"),
     settings = ClusterShardingSettings(system),
     extractEntityId = extractEntityId,
     extractShardId = extractShardId)
 
-  def proxyToShardRegion(system: ActorSystem): ActorRef = ClusterSharding(system).startProxy(
-    typeName = "Account",
-    role = Some("ACCOUNT"),
+  def proxyToShardRegion(system: ActorSystem, role:Option[String] = Some("account")): ActorRef = ClusterSharding(system).startProxy(
+    typeName = "account",
+    role = role,
     extractEntityId = extractEntityId,
     extractShardId = extractShardId
   )

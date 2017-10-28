@@ -4,7 +4,7 @@ kind: Deployment
 metadata:
   name: accounts
 spec:
-  replicas: 5
+  replicas: 3
   template:
     metadata:
       labels:
@@ -16,9 +16,9 @@ spec:
         imagePullPolicy: Always
         env:
         - name: ROLE
-          value: "ACCOUNT"
+          value: "account"
         - name: SHARD_ROLE
-          value: "ACCOUNT"
+          value: "account"
         - name: CASS
           value: "cassandra-0.cassandra.default.svc.cluster.local"
         - name: NUM_SHARDS_ACCOUNTS
