@@ -66,7 +66,9 @@ dockerEntrypoint ++= Seq(
   "-J-XX:MaxRAMFraction=1",
   "-J-XshowSettings:vm",
   "-J-XX:+UseG1GC",
-  "-J-XX:+AggressiveOpts"
+  "-J-XX:+AggressiveOpts",
+  "-J-XX:+PrintFlagsFinal",
+  "-J-Djava.net.preferIPv4Stack=true"
 )
 
 // Protocol Buffers
