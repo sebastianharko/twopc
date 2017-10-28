@@ -12,7 +12,7 @@ spec:
     spec:
       containers:
       - name: twopc
-        image: sebastianharko/2pc:6.9
+        image: sebastianharko/2pc:7.0
         imagePullPolicy: Always
         env:
         - name: ROLE
@@ -22,11 +22,11 @@ spec:
         - name: CASS
           value: "cassandra-0.cassandra.default.svc.cluster.local"
         - name: NUM_SHARDS_COORD
-          value: "50"
+          value: "8"
         - name: PASSIVATE_COORD
-          value: "120"
+          value: "60"
         - name: VOTING_TIMEOUT
-          value: "1200"
+          value: "2000"
         - name: COMMIT_TIMEOUT
           value: "500"
         - name: POD_IP
