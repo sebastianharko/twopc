@@ -10,6 +10,8 @@ import scala.concurrent.duration._
 import scala.language.postfixOps
 import scala.util.Try
 
+import org.http4s.headers._
+
 class Main
 
 object Main extends App {
@@ -120,13 +122,14 @@ object Main extends App {
       case GET -> Root / "balance" / accountId =>
         import Timeouts.BalanceQueryTimeout
         Ok((proxyToAccounts ? GetBalance(accountId)).mapTo[Balance].map(_.amount.toString))
+              .map(_.putHeaders(Connection("close".ci)))
       case POST -> Root / "transaction" / transactionId / sourceAccountId / destinationAccountId / IntVar(amount) =>
         import Timeouts.TransactionTimeout
         Ok((proxyToCoordinators ? MoneyTransaction(transactionId, sourceAccountId, destinationAccountId, amount, replyToSender = true)).map {
               case app.messages.Accepted(_) => "true"
               case app.messages.Rejected(_) => "false"
             }
-          )
+          ).map(_.putHeaders(Connection("close".ci)))
     }
 
     BlazeBuilder.bindHttp(8080, sys.env("POD_IP"))

@@ -22,7 +22,7 @@ spec:
         - name: BALANCE_QUERY_TIMEOUT
           value: "350"
         - name: TRANSACTION_TIMEOUT
-          value: "500"
+          value: "700"
         - name: POD_IP
           valueFrom:
             fieldRef:

@@ -26,9 +26,9 @@ spec:
         - name: PASSIVATE_COORD
           value: "60"
         - name: VOTING_TIMEOUT
-          value: "2000"
+          value: "3000"
         - name: COMMIT_TIMEOUT
-          value: "500"
+          value: "1000"
         - name: POD_IP
           valueFrom:
             fieldRef:
