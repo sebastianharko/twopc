@@ -3,8 +3,9 @@ package app
 import akka.actor.{ActorRef, ActorSystem}
 import akka.cluster.Cluster
 import akka.event.Logging
-import app.messages.{MoneyTransaction, Rejected, Accepted}
+import app.messages.{Accepted, MoneyTransaction, Rejected}
 import fs2.Task
+import org.http4s.headers.Connection
 
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
@@ -135,7 +136,7 @@ object Main extends App {
           case e: Throwable =>
             logging.error(e, "transaction failed")
             InternalServerError()
-        }
+        }.map(_.putHeaders(Connection("close".ci)))
     }
 
     BlazeBuilder.bindHttp(8080, sys.env("POD_IP"))
