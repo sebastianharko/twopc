@@ -31,7 +31,6 @@ spec:
               fieldPath: status.podIP
         ports:
         - containerPort: 8080
-        - containerPort: 19999
         - containerPort: 2551
         resources:
           requests:
