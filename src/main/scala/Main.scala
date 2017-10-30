@@ -3,7 +3,7 @@ package app
 import akka.actor.{ActorRef, ActorSystem}
 import akka.cluster.Cluster
 import akka.event.Logging
-import app.messages.{MoneyTransaction, Rejected}
+import app.messages.{MoneyTransaction, Rejected, Accepted}
 import fs2.Task
 
 import scala.concurrent.duration._
@@ -117,8 +117,8 @@ object Main extends App {
     def askCoordinator(mt: MoneyTransaction): Future[Boolean] = {
       import Timeouts.TransactionTimeout
       (proxyToCoordinators ? MoneyTransaction(mt.transactionId, mt.sourceAccountId, mt.destinationAccountId, mt.amount, replyToSender = true)).map {
-        case Accepted(_) => true
-        case Rejected(_) => false
+        case app.messages.Accepted(_) => true
+        case app.messages.Rejected(_) => false
       }
     }
 
@@ -127,15 +127,14 @@ object Main extends App {
     val service = HttpService {
       case GET -> Root / "ping" =>
         Ok("pong")
-      case GET -> Root / "balance" / accountId =>
-
-        ???
       case POST -> Root / "transaction" / transactionId / sourceAccountId / destinationAccountId / IntVar(amount) =>
         Task.fromFuture(askCoordinator(MoneyTransaction(transactionId, sourceAccountId, destinationAccountId, amount))).flatMap {
           case true => Ok()
           case false => Conflict()
         }.handleWith {
-          case _ => InternalServerError()
+          case e: Throwable =>
+            logging.error(e, "transaction failed")
+            InternalServerError()
         }
     }
 
