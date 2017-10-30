@@ -15,17 +15,19 @@ cinnamon in test := false
 // final ones are also published to Maven Central.
 resolvers += Resolver.bintrayRepo("hseeberger", "maven")
 
-libraryDependencies += "com.typesafe.akka" %% "akka-persistence" % "2.5.0"
+libraryDependencies += "com.typesafe.akka" %% "akka-cluster" % "2.5.6"
 
-libraryDependencies += "com.typesafe.akka" %% "akka-cluster-sharding" % "2.5.0"
+libraryDependencies += "com.typesafe.akka" %% "akka-persistence" % "2.5.6"
 
-libraryDependencies += "com.typesafe.akka" %% "akka-stream" % "2.5.0"
+libraryDependencies += "com.typesafe.akka" %% "akka-cluster-sharding" % "2.5.6"
 
-libraryDependencies += "com.typesafe.akka" %% "akka-actor" % "2.5.0"
+libraryDependencies += "com.typesafe.akka" %% "akka-stream" % "2.5.6"
 
-libraryDependencies += "com.typesafe.akka" %% "akka-testkit" % "2.5.0" % "test"
+libraryDependencies += "com.typesafe.akka" %% "akka-actor" % "2.5.6"
 
-libraryDependencies += "com.typesafe.akka" %% "akka-slf4j" % "2.5.0"
+libraryDependencies += "com.typesafe.akka" %% "akka-testkit" % "2.5.6" % "test"
+
+libraryDependencies += "com.typesafe.akka" %% "akka-slf4j" % "2.5.6"
 
 libraryDependencies += "org.scalactic" %% "scalactic" % "3.0.1"
 
@@ -33,7 +35,7 @@ libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.1" % "test"
 
 libraryDependencies += "ch.qos.logback" % "logback-classic" % "1.2.3"
 
-libraryDependencies += "com.typesafe.akka" %% "akka-persistence-cassandra" % "0.50"
+libraryDependencies += "com.typesafe.akka" %% "akka-persistence-cassandra" % "0.58"
 
 libraryDependencies += "com.lightbend.akka" %% "akka-diagnostics" % "1.0.3"
 
@@ -45,12 +47,11 @@ libraryDependencies += "com.lightbend.akka" %% "akka-split-brain-resolver" % "1.
 libraryDependencies += Cinnamon.library.cinnamonOpenTracingJaeger
 
 // Use Coda Hale Metrics
+libraryDependencies += Cinnamon.library.cinnamonCHMetricsJvmMetrics
 libraryDependencies += Cinnamon.library.cinnamonCHMetricsStatsDReporter
 libraryDependencies += Cinnamon.library.cinnamonCHMetrics
 // Use Akka instrumentation
 libraryDependencies += Cinnamon.library.cinnamonAkka
-
-libraryDependencies += "com.lightbend.cinnamon" %% "cinnamon-chmetrics-jvm-metrics" % "2.5.2"
 
 // ConstructR
 libraryDependencies ++= Vector(
