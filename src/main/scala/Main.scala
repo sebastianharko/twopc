@@ -3,14 +3,13 @@ package app
 import akka.actor.{ActorRef, ActorSystem}
 import akka.cluster.Cluster
 import akka.event.Logging
-import app.messages.{Balance, GetBalance, MoneyTransaction}
+import app.messages.{MoneyTransaction, Rejected}
+import fs2.Task
 
-import scala.concurrent.Await
 import scala.concurrent.duration._
+import scala.concurrent.{Await, Future}
 import scala.language.postfixOps
 import scala.util.Try
-
-import org.http4s.headers._
 
 class Main
 
@@ -115,21 +114,29 @@ object Main extends App {
     import org.http4s.dsl._
     import org.http4s.server.blaze.BlazeBuilder
 
+    def askCoordinator(mt: MoneyTransaction): Future[Boolean] = {
+      import Timeouts.TransactionTimeout
+      (proxyToCoordinators ? MoneyTransaction(mt.transactionId, mt.sourceAccountId, mt.destinationAccountId, mt.amount, replyToSender = true)).map {
+        case Accepted(_) => true
+        case Rejected(_) => false
+      }
+    }
+
+    implicit  val S = fs2.Strategy.fromExecutionContext(system.dispatcher)
 
     val service = HttpService {
       case GET -> Root / "ping" =>
         Ok("pong")
       case GET -> Root / "balance" / accountId =>
-        import Timeouts.BalanceQueryTimeout
-        Ok((proxyToAccounts ? GetBalance(accountId)).mapTo[Balance].map(_.amount.toString))
-              .map(_.putHeaders(Connection("close".ci)))
+
+        ???
       case POST -> Root / "transaction" / transactionId / sourceAccountId / destinationAccountId / IntVar(amount) =>
-        import Timeouts.TransactionTimeout
-        Ok((proxyToCoordinators ? MoneyTransaction(transactionId, sourceAccountId, destinationAccountId, amount, replyToSender = true)).map {
-              case app.messages.Accepted(_) => "true"
-              case app.messages.Rejected(_) => "false"
-            }
-          ).map(_.putHeaders(Connection("close".ci)))
+        Task.fromFuture(askCoordinator(MoneyTransaction(transactionId, sourceAccountId, destinationAccountId, amount))).flatMap {
+          case true => Ok()
+          case false => Conflict()
+        }.handleWith {
+          case _ => InternalServerError()
+        }
     }
 
     BlazeBuilder.bindHttp(8080, sys.env("POD_IP"))

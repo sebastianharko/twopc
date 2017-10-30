@@ -4,7 +4,7 @@ kind: Deployment
 metadata:
   name: http-deployment
 spec:
-  replicas: 4
+  replicas: 3
   template:
     metadata:
       labels:
@@ -15,6 +15,8 @@ spec:
         image: sebastianharko/2pc:7.0
         imagePullPolicy: Always
         env:
+        - name: CASS
+          value: "cassandra-0.cassandra.default.svc.cluster.local"
         - name: ROLE
           value: "http"
         - name: SHARD_ROLE
@@ -22,7 +24,7 @@ spec:
         - name: BALANCE_QUERY_TIMEOUT
           value: "350"
         - name: TRANSACTION_TIMEOUT
-          value: "700"
+          value: "1000"
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -33,9 +35,9 @@ spec:
         - containerPort: 2551
         resources:
           requests:
-            cpu: 5
+            cpu: 2
             memory: 4Gi
           limits:
-            cpu: 5
+            cpu: 2
             memory: 4Gi
 

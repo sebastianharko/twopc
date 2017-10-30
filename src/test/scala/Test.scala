@@ -239,7 +239,7 @@ class TestSimpleAccountOps extends TestKit(ActorSystem("bank")) with WordSpecLik
       account ! IsLocked("94")
       expectMsg(true)
 
-      Thread.sleep(1000)
+      Thread.sleep(3000)
 
       account ! GetBalance("94")
       expectMsg(Balance(50))
