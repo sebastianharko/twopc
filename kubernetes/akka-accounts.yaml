@@ -35,8 +35,8 @@ spec:
         - containerPort: 2551
         resources:
           requests:
-            cpu: 3
+            cpu: 2
             memory: 8Gi
           limits:
-            cpu: 3
+            cpu: 2
             memory: 8Gi

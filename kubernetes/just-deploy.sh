@@ -4,11 +4,11 @@ kubectl create -f etcd.yaml
 kubectl create -f statsd.yaml
 kubectl create -f cassandra-service.yaml
 kubectl create -f cassandra-statefulset.yaml
-sleep 400
+sleep 420
 echo "Deploying akka cluster"
 kubectl create -f akka-accounts.yaml
 sleep 30
-kubectl scale --replicas=6 deployments/accounts
+kubectl scale --replicas=16 deployments/accounts
 sleep 30
 kubectl create -f akka-coordinators.yaml
 sleep 30
