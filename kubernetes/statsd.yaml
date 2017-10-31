@@ -9,10 +9,6 @@ spec:
       labels:
         app: ggs 
     spec:
-      resources:
-        requests:
-          cpu: 2
-          memory: 8Gi
       containers:
       - name: grafana-grafana-statsd 
         image: marial/grafana-graphite-statsd
@@ -25,6 +21,10 @@ spec:
           name: udp
         - containerPort: 8126
           name: statsd
+        resources:
+          requests:
+            cpu: 2
+            memory: 8Gi
 ---
 apiVersion: v1
 kind: Service

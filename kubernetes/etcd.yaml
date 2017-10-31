@@ -9,13 +9,6 @@ spec:
       labels:
         app: etcd
     spec:
-      resources:
-        requests:
-          cpu: 0.5
-          memory: 2Gi
-        limits:
-          cpu: 0.5
-          memory: 2Gi
       containers:
       - name: etcd
         args:
@@ -24,6 +17,13 @@ spec:
         image: quay.io/coreos/etcd:v2.3.7
         ports:
         - containerPort: 2379
+        resources:
+          requests:
+            cpu: 0.5
+            memory: 2Gi
+          limits:
+            cpu: 0.5
+            memory: 2Gi
 ---
 kind: Service
 apiVersion: v1
