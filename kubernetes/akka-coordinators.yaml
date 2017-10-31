@@ -4,7 +4,7 @@ kind: Deployment
 metadata:
   name: coordinators
 spec:
-  replicas: 8
+  replicas: 4
   template:
     metadata:
       labels:
@@ -22,7 +22,7 @@ spec:
         - name: CASS
           value: "cassandra-0.cassandra.default.svc.cluster.local"
         - name: NUM_SHARDS_COORD
-          value: "24"
+          value: "400"
         - name: PASSIVATE_COORD
           value: "60"
         - name: VOTING_TIMEOUT
@@ -37,8 +37,8 @@ spec:
         - containerPort: 2551
         resources:
           requests:
-            cpu: 2
+            cpu: 4
             memory: 8Gi
           limits:
-            cpu: 2
+            cpu: 4
             memory: 8Gi

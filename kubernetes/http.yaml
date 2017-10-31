@@ -24,7 +24,7 @@ spec:
         - name: BALANCE_QUERY_TIMEOUT
           value: "350"
         - name: TRANSACTION_TIMEOUT
-          value: "1500"
+          value: "2500"
         - name: POD_IP
           valueFrom:
             fieldRef:
@@ -34,9 +34,9 @@ spec:
         - containerPort: 2551
         resources:
           requests:
-            cpu: 2
-            memory: 8Gi
+            cpu: 4
+            memory: 4Gi
           limits:
-            cpu: 2
-            memory: 8Gi
+            cpu: 4
+            memory: 4Gi
 

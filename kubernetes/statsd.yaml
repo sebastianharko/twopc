@@ -9,6 +9,10 @@ spec:
       labels:
         app: ggs 
     spec:
+      resources:
+        requests:
+          cpu: 2
+          memory: 8Gi
       containers:
       - name: grafana-grafana-statsd 
         image: marial/grafana-graphite-statsd

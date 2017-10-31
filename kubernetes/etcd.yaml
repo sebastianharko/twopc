@@ -9,6 +9,13 @@ spec:
       labels:
         app: etcd
     spec:
+      resources:
+        requests:
+          cpu: 0.5
+          memory: 2Gi
+        limits:
+          cpu: 0.5
+          memory: 2Gi
       containers:
       - name: etcd
         args:
