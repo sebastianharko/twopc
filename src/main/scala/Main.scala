@@ -136,7 +136,7 @@ object Main extends App {
           case e: Throwable =>
             logging.error(e, "transaction failed")
             InternalServerError()
-        }.map(_.putHeaders(Connection("close".ci)))
+        }
     }
 
     BlazeBuilder.bindHttp(8080, sys.env("POD_IP"))
